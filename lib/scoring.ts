@@ -1,4 +1,4 @@
-import { BENCHMARK_PROMPTS } from "./benchmark";
+import { BENCHMARK_PROMPTS } from "./benchmark.ts";
 
 export type PromptScore = {
   promptId: string;
@@ -58,6 +58,7 @@ function scoreJson(response: string): number {
 }
 
 function scorePrompt(promptId: string, response: string): number {
+  if (!response.trim()) return 0;
   const text = normalized(response);
 
   switch (promptId) {
@@ -97,4 +98,3 @@ export function scoreResponses(responses: Array<{ promptId: string; responseText
     return { promptId: prompt.id, score: scorePrompt(prompt.id, response), maxScore: 2 };
   });
 }
-
