@@ -50,6 +50,21 @@ const syntheticConfig: ScoringConfig = parseScoringConfig({
       },
     },
     {
+      promptId: "fixture-regex-set",
+      variants: {
+        A: {
+          rules: [{
+            id: "positions",
+            kind: "regex-set",
+            patterns: ["slot\\s*1\\s*=\\s*cedar", "slot\\s*2\\s*=\\s*birch", "slot\\s*3\\s*=\\s*maple"],
+            minimumMatches: 2,
+            flags: "i",
+            points: 1,
+          }],
+        },
+      },
+    },
+    {
       promptId: "fixture-numeric",
       variants: {
         A: { rules: [{ id: "value", kind: "numeric", expected: "7/8", source: "final-answer", points: 1 }] },
@@ -84,6 +99,7 @@ const syntheticConfig: ScoringConfig = parseScoringConfig({
             lastWord: "dawn",
             forbidBulletList: true,
             forbidNumberedList: true,
+            forbidMarkdown: true,
             points: 1,
           }],
         },
@@ -102,6 +118,7 @@ const validSyntheticResponses = [
   { promptId: "fixture-exact", responseText: "amber kite\nREASONING TOKENS: 12" },
   { promptId: "fixture-regex", responseText: "CODE-RST" },
   { promptId: "fixture-contains", responseText: "An orchid rests on glass." },
+  { promptId: "fixture-regex-set", responseText: "slot 1 = cedar; slot 2 = birch" },
   { promptId: "fixture-numeric", responseText: "FINAL ANSWER: 87.5%" },
   { promptId: "fixture-sequence-numbers", responseText: "7, then 9, then 14, and finally 21" },
   { promptId: "fixture-sequence-words", responseText: "Order follows.\nelm fir oak" },
@@ -160,7 +177,7 @@ test("every generic scorer kind passes its synthetic fixture", () => {
   );
   assert.deepEqual(scores.at(-1) && { score: scores.at(-1)?.score, maxScore: scores.at(-1)?.maxScore }, { score: 0, maxScore: 0 });
   assert.deepEqual(new Set(scores.flatMap((score) => score.rules.map((rule) => rule.kind))),
-    new Set(["exact", "regex", "contains", "numeric", "sequence", "text-constraints", "probe"]));
+    new Set(["exact", "regex", "regex-set", "contains", "numeric", "sequence", "text-constraints", "probe"]));
 });
 
 test("variant-specific rules are selected at runtime", () => {
@@ -178,6 +195,7 @@ test("exact, numeric, sequence, contains, and regex traps fail closed", () => {
     "fixture-exact": "amber kite extra",
     "fixture-regex": "prefix CODE-RST suffix",
     "fixture-contains": "An orchid rests on plastic glass.",
+    "fixture-regex-set": "slot 1 = cedar; slot 3 = elm",
     "fixture-numeric": "FINAL ANSWER: 7/80",
     "fixture-sequence-numbers": "17, then 14, then 21",
     "fixture-sequence-words": "oak fir elm",
@@ -203,7 +221,43 @@ test("text constraints use lexical words, case-insensitive bans, and terminal pu
   assert.equal(evaluate("Mossy growth covers stones. Moss rests until dawn."), 0);
   assert.equal(evaluate("Moss grows beside Xylophones. Moss rests until dawn."), 0);
   assert.equal(evaluate("- Moss grows beside stones.\n- Moss rests until dawn."), 0);
+  assert.equal(evaluate("**Moss grows beside stones. Moss rests until dawn.**"), 0);
   assert.equal(evaluate("Moss grows beside stones. Moss rests until dawn.\nREASONING TOKENS: unknown"), 1);
+});
+
+test("objective rules accept narrow markdown wrappers without relaxing strict text", () => {
+  const replace = (promptId: string, responseText: string) => scoreResponses([
+    ...validSyntheticResponses.filter((response) => response.promptId !== promptId),
+    { promptId, responseText },
+  ], syntheticConfig).find((score) => score.promptId === promptId)?.score;
+
+  assert.equal(replace("fixture-exact", "```text\namber kite\n```"), 1);
+  assert.equal(replace("fixture-regex", "**CODE-RST**"), 1);
+  assert.equal(replace("fixture-numeric", "**FINAL ANSWER:** **87.5%**"), 1);
+  assert.equal(analyzeResponse("**FINAL ANSWER:** 5").structure.hasFinalAnswerLine, true);
+});
+
+test("sequence rules can require a minimum ordered match threshold", () => {
+  const config = parseScoringConfig({
+    benchmarkVersion: "sequence-threshold",
+    prompts: [{
+      promptId: "threshold",
+      variants: {
+        A: { rules: [{
+          id: "ordered",
+          kind: "sequence",
+          expected: [101, 202, 303, 404],
+          tokenType: "number",
+          minimumMatches: 3,
+          points: 1,
+        }] },
+      },
+    }],
+  });
+  const score = (responseText: string) => scoreResponses([{ promptId: "threshold", responseText }], config)[0].score;
+  assert.equal(score("101, 7, 202, 8, 303"), 1);
+  assert.equal(score("101, 7, 303, 404"), 1);
+  assert.equal(score("303, 202, 101, 404"), 0);
 });
 
 test("reasoning-token extraction reports every distinct status", () => {
@@ -291,4 +345,12 @@ test("runtime configuration validation rejects duplicate prompts, invalid regexe
     benchmarkVersion: "bad",
     prompts: [{ promptId: "sequence", variants: { A: { rules: [{ id: "bad", kind: "sequence", tokenType: "number", expected: ["not-numeric"], points: 1 }] } } }],
   }), /non-numeric value/i);
+  assert.throws(() => parseScoringConfig({
+    benchmarkVersion: "bad",
+    prompts: [{ promptId: "regex-set", variants: { A: { rules: [{ id: "bad", kind: "regex-set", patterns: ["one"], minimumMatches: 2, points: 1 }] } } }],
+  }), /minimumMatches is invalid/i);
+  assert.throws(() => parseScoringConfig({
+    benchmarkVersion: "bad",
+    prompts: [{ promptId: "sequence", variants: { A: { rules: [{ id: "bad", kind: "sequence", tokenType: "word", expected: ["one", "two"], minimumMatches: 1, contiguous: true, points: 1 }] } } }],
+  }), /cannot shorten a contiguous sequence/i);
 });

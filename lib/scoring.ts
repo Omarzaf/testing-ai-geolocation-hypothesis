@@ -44,6 +44,13 @@ export type RegexRule = RuleBase & {
   flags?: string;
 };
 
+export type RegexSetRule = RuleBase & {
+  kind: "regex-set";
+  patterns: readonly string[];
+  minimumMatches: number;
+  flags?: string;
+};
+
 export type ContainsRule = RuleBase & {
   kind: "contains";
   all?: readonly string[];
@@ -67,6 +74,7 @@ export type SequenceRule = RuleBase & {
   contiguous?: boolean;
   caseSensitive?: boolean;
   tolerance?: number;
+  minimumMatches?: number;
 };
 
 export type SentenceConstraint = {
@@ -87,6 +95,7 @@ export type TextConstraintsRule = RuleBase & {
   lastWord?: string;
   forbidBulletList?: boolean;
   forbidNumberedList?: boolean;
+  forbidMarkdown?: boolean;
 };
 
 export type ProbeRule = RuleBase & {
@@ -97,6 +106,7 @@ export type ProbeRule = RuleBase & {
 export type ScoringRule =
   | ExactRule
   | RegexRule
+  | RegexSetRule
   | ContainsRule
   | NumericRule
   | SequenceRule
@@ -242,7 +252,7 @@ export function analyzeResponse(response: string): ResponseAnalysis {
     visibleTokenEstimate: visible.tokenEstimate,
     answerWordCount: extractWords(answerText).length,
     structure: {
-      hasFinalAnswerLine: /^\s*FINAL ANSWER\s*:/im.test(answerText),
+      hasFinalAnswerLine: Boolean(finalAnswerText(answerText)),
       hasReasoningTokenLabel: TOKEN_LABEL_PATTERN.test(response.split(/\r?\n/).find((line) => TOKEN_LABEL_PATTERN.test(line)) ?? ""),
       hasBulletList: lines.some((line) => /^[-*•]\s+/.test(line)),
       hasNumberedList: lines.some((line) => /^\d+[.)]\s+/.test(line)),
@@ -275,9 +285,41 @@ function extractNumberTokens(value: string): string[] {
   return value.match(NUMBER_PATTERN) ?? [];
 }
 
+function unwrapHarmlessMarkdown(value: string): string {
+  let text = value.trim();
+  for (let pass = 0; pass < 4; pass += 1) {
+    const quotedLines = text.split(/\r?\n/);
+    if (quotedLines.some((line) => line.trim()) && quotedLines.every((line) => !line.trim() || /^\s*>/.test(line))) {
+      text = quotedLines.map((line) => line.replace(/^\s*>\s?/, "")).join("\n").trim();
+      continue;
+    }
+    const fenced = text.match(/^```(?:[\w+-]+)?[ \t]*\n([\s\S]*?)\n?```$/) ?? text.match(/^```([\s\S]*?)```$/);
+    if (fenced) {
+      text = fenced[1].trim();
+      continue;
+    }
+    const wrappers: ReadonlyArray<readonly [string, string]> = [
+      ["**", "**"],
+      ["__", "__"],
+      ["`", "`"],
+    ];
+    const wrapper = wrappers.find(([start, end]) => text.length > start.length + end.length && text.startsWith(start) && text.endsWith(end));
+    if (!wrapper) break;
+    text = text.slice(wrapper[0].length, -wrapper[1].length).trim();
+  }
+  return text;
+}
+
 function finalAnswerText(value: string): string {
-  const matches = [...value.matchAll(/^\s*FINAL ANSWER\s*:\s*(.+)$/gim)];
-  return matches.at(-1)?.[1]?.trim() ?? "";
+  const answers = value.split(/\r?\n/).flatMap((line) => {
+    const candidates = [line.trim(), unwrapHarmlessMarkdown(line)];
+    for (const candidate of candidates) {
+      const match = candidate.match(/^\s*(?:\*\*|__)?FINAL ANSWER(?:\*\*|__)?\s*:(?:\*\*|__)?\s*(.+?)\s*$/i);
+      if (match) return [unwrapHarmlessMarkdown(match[1])];
+    }
+    return [];
+  });
+  return answers.at(-1) ?? "";
 }
 
 function scopeText(value: string, source: "answer" | "final-answer" | "last-line" = "answer"): string {
@@ -292,15 +334,22 @@ function numericMatches(actual: number, expected: number, tolerance = 1e-9): boo
 
 function scoreExact(rule: ExactRule, answerText: string): boolean {
   const collapse = (value: string) => rule.collapseWhitespace ? value.trim().replace(/\s+/g, " ") : value.trim();
-  return normalizeText(collapse(answerText), rule.caseSensitive) === normalizeText(collapse(rule.expected), rule.caseSensitive);
+  return normalizeText(collapse(unwrapHarmlessMarkdown(answerText)), rule.caseSensitive) ===
+    normalizeText(collapse(unwrapHarmlessMarkdown(rule.expected)), rule.caseSensitive);
 }
 
 function scoreRegex(rule: RegexRule, answerText: string): boolean {
-  return new RegExp(rule.pattern, rule.flags).test(answerText);
+  return new RegExp(rule.pattern, rule.flags).test(unwrapHarmlessMarkdown(answerText));
+}
+
+function scoreRegexSet(rule: RegexSetRule, answerText: string): boolean {
+  const text = unwrapHarmlessMarkdown(answerText);
+  const matches = rule.patterns.filter((pattern) => new RegExp(pattern, rule.flags).test(text)).length;
+  return matches >= rule.minimumMatches;
 }
 
 function scoreContains(rule: ContainsRule, answerText: string): boolean {
-  const text = normalizeText(answerText, rule.caseSensitive);
+  const text = normalizeText(unwrapHarmlessMarkdown(answerText), rule.caseSensitive);
   const normalize = (value: string) => normalizeText(value, rule.caseSensitive);
   const all = rule.all ?? [];
   const any = rule.any ?? [];
@@ -314,7 +363,8 @@ function scoreNumeric(rule: NumericRule, answerText: string): boolean {
   const expected = parseNumeric(rule.expected);
   if (expected === null) return false;
   const source = rule.source ?? "answer";
-  const tokens = extractNumberTokens(scopeText(answerText, source === "last-number" ? "answer" : source));
+  const normalizedAnswer = unwrapHarmlessMarkdown(answerText);
+  const tokens = extractNumberTokens(scopeText(normalizedAnswer, source === "last-number" ? "answer" : source));
   const candidates = source === "last-number" ? tokens.slice(-1) : tokens;
   return candidates.some((candidate) => {
     const parsed = parseNumeric(candidate);
@@ -322,17 +372,9 @@ function scoreNumeric(rule: NumericRule, answerText: string): boolean {
   });
 }
 
-function isOrderedSubsequence<T>(actual: readonly T[], expected: readonly T[]): boolean {
-  let expectedIndex = 0;
-  for (const value of actual) {
-    if (Object.is(value, expected[expectedIndex])) expectedIndex += 1;
-    if (expectedIndex === expected.length) return true;
-  }
-  return expected.length === 0;
-}
-
 function scoreSequence(rule: SequenceRule, answerText: string): boolean {
-  const text = scopeText(answerText, rule.source ?? "answer");
+  const text = scopeText(unwrapHarmlessMarkdown(answerText), rule.source ?? "answer");
+  const minimumMatches = rule.minimumMatches ?? rule.expected.length;
   if (rule.tokenType === "number") {
     const actual = extractNumberTokens(text).map(parseNumeric).filter((value): value is number => value !== null);
     const expected = rule.expected.map(parseNumeric);
@@ -342,12 +384,8 @@ function scoreSequence(rule: SequenceRule, answerText: string): boolean {
       return actual.some((_, start) => expectedNumbers.every((value, offset) =>
         actual[start + offset] !== undefined && numericMatches(actual[start + offset], value, rule.tolerance)));
     }
-    let expectedIndex = 0;
-    for (const value of actual) {
-      if (numericMatches(value, expectedNumbers[expectedIndex], rule.tolerance)) expectedIndex += 1;
-      if (expectedIndex === expectedNumbers.length) return true;
-    }
-    return expectedNumbers.length === 0;
+    return longestCommonSubsequenceLength(actual, expectedNumbers,
+      (left, right) => numericMatches(left, right, rule.tolerance)) >= minimumMatches;
   }
 
   const normalize = (value: string | number) => normalizeText(String(value), rule.caseSensitive);
@@ -356,7 +394,25 @@ function scoreSequence(rule: SequenceRule, answerText: string): boolean {
   if (rule.contiguous) {
     return actual.some((_, start) => expected.every((value, offset) => actual[start + offset] === value));
   }
-  return isOrderedSubsequence(actual, expected);
+  return longestCommonSubsequenceLength(actual, expected, (left, right) => left === right) >= minimumMatches;
+}
+
+function longestCommonSubsequenceLength<T>(
+  actual: readonly T[],
+  expected: readonly T[],
+  equals: (left: T, right: T) => boolean,
+): number {
+  let previous = new Array<number>(expected.length + 1).fill(0);
+  for (const actualValue of actual) {
+    const current = new Array<number>(expected.length + 1).fill(0);
+    for (let expectedIndex = 1; expectedIndex <= expected.length; expectedIndex += 1) {
+      current[expectedIndex] = equals(actualValue, expected[expectedIndex - 1])
+        ? previous[expectedIndex - 1] + 1
+        : Math.max(previous[expectedIndex], current[expectedIndex - 1]);
+    }
+    previous = current;
+  }
+  return previous[expected.length];
 }
 
 function scoreTextConstraints(rule: TextConstraintsRule, answerText: string): boolean {
@@ -376,6 +432,7 @@ function scoreTextConstraints(rule: TextConstraintsRule, answerText: string): bo
   if (rule.lastWord !== undefined && normalizeText(words.at(-1) ?? "") !== normalizeText(rule.lastWord)) return false;
   if (rule.forbidBulletList && nonEmptyLines(answerText).some((line) => /^[-*•]\s+/.test(line))) return false;
   if (rule.forbidNumberedList && nonEmptyLines(answerText).some((line) => /^\d+[.)]\s+/.test(line))) return false;
+  if (rule.forbidMarkdown && /(?:```|`|\*\*|__|~~|^\s*>|^\s{0,3}#{1,6}\s|(?:^|\s)\*[^*\n]+\*(?:\s|$)|(?:^|\s)_[^_\n]+_(?:\s|$)|\[[^\]]+\]\([^)]+\))/m.test(answerText)) return false;
 
   for (const [expectedWord, count] of Object.entries(rule.exactWordCounts ?? {})) {
     const expected = normalizeText(expectedWord);
@@ -394,6 +451,7 @@ function evaluateRule(rule: ScoringRule, answerText: string): boolean {
   switch (rule.kind) {
     case "exact": return scoreExact(rule, answerText);
     case "regex": return scoreRegex(rule, answerText);
+    case "regex-set": return scoreRegexSet(rule, answerText);
     case "contains": return scoreContains(rule, answerText);
     case "numeric": return scoreNumeric(rule, answerText);
     case "sequence": return scoreSequence(rule, answerText);
@@ -443,6 +501,16 @@ function validateRule(value: unknown, path: string): asserts value is ScoringRul
       }
       new RegExp(value.pattern, value.flags as string | undefined);
       break;
+    case "regex-set":
+      if (!Array.isArray(value.patterns) || value.patterns.length === 0 || value.patterns.some((pattern) => typeof pattern !== "string") ||
+        (value.flags !== undefined && typeof value.flags !== "string")) {
+        throw new Error(`Invalid scoring configuration: ${path} regex-set fields are malformed.`);
+      }
+      if (!Number.isInteger(value.minimumMatches) || (value.minimumMatches as number) < 1 || (value.minimumMatches as number) > value.patterns.length) {
+        throw new Error(`Invalid scoring configuration: ${path}.minimumMatches is invalid.`);
+      }
+      value.patterns.forEach((pattern) => new RegExp(pattern as string, value.flags as string | undefined));
+      break;
     case "contains":
       for (const field of ["all", "any", "none"] as const) {
         if (value[field] !== undefined) assertStringArray(value[field], `${path}.${field}`);
@@ -479,13 +547,20 @@ function validateRule(value: unknown, path: string): asserts value is ScoringRul
       if (value.tolerance !== undefined && (typeof value.tolerance !== "number" || !Number.isFinite(value.tolerance) || value.tolerance < 0)) {
         throw new Error(`Invalid scoring configuration: ${path}.tolerance is invalid.`);
       }
+      if (value.minimumMatches !== undefined &&
+        (!Number.isInteger(value.minimumMatches) || (value.minimumMatches as number) < 1 || (value.minimumMatches as number) > value.expected.length)) {
+        throw new Error(`Invalid scoring configuration: ${path}.minimumMatches is invalid.`);
+      }
+      if (value.contiguous === true && value.minimumMatches !== undefined && value.minimumMatches !== value.expected.length) {
+        throw new Error(`Invalid scoring configuration: ${path}.minimumMatches cannot shorten a contiguous sequence.`);
+      }
       assertOptionalBoolean(value.contiguous, `${path}.contiguous`);
       assertOptionalBoolean(value.caseSensitive, `${path}.caseSensitive`);
       break;
     case "text-constraints": {
       const constraintFields = [
         "sentenceCount", "wordsPerSentence", "paragraphCount", "totalWords", "exactWordCounts",
-        "forbiddenCharacters", "sentenceConstraints", "lastWord", "forbidBulletList", "forbidNumberedList",
+        "forbiddenCharacters", "sentenceConstraints", "lastWord", "forbidBulletList", "forbidNumberedList", "forbidMarkdown",
       ];
       if (constraintFields.every((field) => value[field] === undefined)) {
         throw new Error(`Invalid scoring configuration: ${path} text constraint rule is empty.`);
@@ -514,6 +589,7 @@ function validateRule(value: unknown, path: string): asserts value is ScoringRul
       }
       assertOptionalBoolean(value.forbidBulletList, `${path}.forbidBulletList`);
       assertOptionalBoolean(value.forbidNumberedList, `${path}.forbidNumberedList`);
+      assertOptionalBoolean(value.forbidMarkdown, `${path}.forbidMarkdown`);
       if (value.sentenceConstraints !== undefined) {
         if (!Array.isArray(value.sentenceConstraints)) {
           throw new Error(`Invalid scoring configuration: ${path}.sentenceConstraints must be an array.`);

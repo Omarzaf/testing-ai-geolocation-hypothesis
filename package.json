@@ -12,7 +12,8 @@
     "test": "node --experimental-strip-types --test tests/rendered-html.test.mjs tests/scoring.test.ts tests/scoring-config.test.ts tests/submission.test.ts tests/submissions-route.test.ts tests/anti-abuse.test.ts tests/embed.test.ts",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next --ignore-pattern outputs --ignore-pattern work",
     "db:generate": "drizzle-kit generate",
-    "scoring:seed": "node scripts/generate-scoring-seed.mjs"
+    "scoring:seed": "node scripts/generate-scoring-seed.mjs",
+    "scoring:test-private": "node --experimental-strip-types scripts/run-private-scoring-cases.mjs"
   },
   "dependencies": {
     "drizzle-orm": "0.45.2",
