@@ -89,7 +89,7 @@ binding.
    pnpm lint
    pnpm exec tsc --noEmit
    pnpm build
-   pnpm exec wrangler deploy --config dist/server/wrangler.json --dry-run
+   env WRANGLER_LOG_PATH=.wrangler/wrangler.log pnpm exec wrangler deploy --config dist/server/wrangler.json --dry-run
    ```
 
 2. Confirm the built client and tracked tree contain no expected answers.
@@ -97,10 +97,10 @@ binding.
    the generated configuration:
 
    ```bash
-   pnpm exec wrangler d1 execute DB --config dist/server/wrangler.json --remote --file drizzle/0001_tranquil_captain_marvel.sql
+   env WRANGLER_LOG_PATH=.wrangler/wrangler.log pnpm exec wrangler d1 execute DB --config dist/server/wrangler.json --remote --file drizzle/0001_tranquil_captain_marvel.sql
    pnpm scoring:seed
-   pnpm exec wrangler d1 execute DB --config dist/server/wrangler.json --remote --file private/core-2-scoring.sql
-   pnpm exec wrangler d1 execute DB --config dist/server/wrangler.json --remote --command "SELECT COUNT(*) AS scoring_rows FROM benchmark_scoring_rules WHERE benchmark_version = 'core-2.0'"
+   env WRANGLER_LOG_PATH=.wrangler/wrangler.log pnpm exec wrangler d1 execute DB --config dist/server/wrangler.json --remote --file private/core-2-scoring.sql
+   env WRANGLER_LOG_PATH=.wrangler/wrangler.log pnpm exec wrangler d1 execute DB --config dist/server/wrangler.json --remote --command "SELECT COUNT(*) AS scoring_rows FROM benchmark_scoring_rules WHERE benchmark_version = 'core-2.0'"
    ```
 
 4. Configure `TURNSTILE_SITE_KEY`, `TURNSTILE_SECRET_KEY`, and
@@ -108,7 +108,7 @@ binding.
 5. Deploy the verified build with the same generated configuration:
 
    ```bash
-   pnpm exec wrangler deploy --config dist/server/wrangler.json
+   env WRANGLER_LOG_PATH=.wrangler/wrangler.log pnpm exec wrangler deploy --config dist/server/wrangler.json
    ```
 
 6. Complete one production submission, verify the stored row and derived
