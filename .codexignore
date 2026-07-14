@@ -3,4 +3,6 @@ dist/
 .wrangler/
 work/
 tsconfig.tsbuildinfo
-
+private/
+public/images/*-sketch.jpg
+public/og.png
