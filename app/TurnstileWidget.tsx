@@ -56,6 +56,7 @@ export function TurnstileWidget({ language, onToken, labels }: TurnstileWidgetPr
       if (!window.turnstile || !container.isConnected || widgetId) return;
       widgetId = window.turnstile.render(container, {
         sitekey: siteKey,
+        action: "benchmark-submit",
         language,
         theme: "light",
         callback: (token: unknown) => onToken(typeof token === "string" ? token : ""),

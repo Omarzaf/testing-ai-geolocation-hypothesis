@@ -162,6 +162,18 @@ function requireString(
   return normalized;
 }
 
+function requireSafeLabel(
+  value: unknown,
+  path: string,
+  options: { minLength: number; maxLength: number },
+): string {
+  const label = requireString(value, path, { ...options, collapseWhitespace: true });
+  if (/[<>{}\u0000-\u001F\u007F]/u.test(label)) {
+    fail(path, "Contains unsupported markup or control characters.");
+  }
+  return label;
+}
+
 function requireEnum<const T extends readonly string[]>(
   value: unknown,
   values: T,
@@ -317,21 +329,18 @@ export function parseSubmissionPayload(
   return {
     city,
     country,
-    provider: requireString(record.provider, "payload.provider", {
+    provider: requireSafeLabel(record.provider, "payload.provider", {
       minLength: 1,
       maxLength: 80,
-      collapseWhitespace: true,
     }),
-    model: requireString(record.model, "payload.model", {
+    model: requireSafeLabel(record.model, "payload.model", {
       minLength: 1,
       maxLength: 120,
-      collapseWhitespace: true,
     }),
     accessType: requireEnum(record.accessType, ACCESS_TYPE_VALUES, "payload.accessType"),
-    planLabel: requireString(record.planLabel, "payload.planLabel", {
+    planLabel: requireSafeLabel(record.planLabel, "payload.planLabel", {
       minLength: 1,
       maxLength: 100,
-      collapseWhitespace: true,
     }),
     uiLanguage: requireEnum(record.uiLanguage, UI_LANGUAGE_VALUES, "payload.uiLanguage"),
     platform: requireEnum(record.platform, PLATFORM_VALUES, "payload.platform"),

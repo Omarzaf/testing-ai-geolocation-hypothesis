@@ -25,9 +25,27 @@ export async function readBoundedJson(request: Request): Promise<unknown> {
   if (Number.isFinite(contentLength) && contentLength > MAX_REQUEST_BYTES) {
     throw new RequestBodyError(413, "Submission payload is too large.");
   }
-  const text = await request.text();
-  if (new TextEncoder().encode(text).byteLength > MAX_REQUEST_BYTES) {
-    throw new RequestBodyError(413, "Submission payload is too large.");
+  const reader = request.body?.getReader();
+  const decoder = new TextDecoder("utf-8", { fatal: true });
+  let text = "";
+  let receivedBytes = 0;
+  try {
+    if (reader) {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        receivedBytes += value.byteLength;
+        if (receivedBytes > MAX_REQUEST_BYTES) {
+          await reader.cancel();
+          throw new RequestBodyError(413, "Submission payload is too large.");
+        }
+        text += decoder.decode(value, { stream: true });
+      }
+      text += decoder.decode();
+    }
+  } catch (error) {
+    if (error instanceof RequestBodyError) throw error;
+    throw new RequestBodyError(400, "Submission payload must be valid UTF-8 JSON.");
   }
   try {
     return JSON.parse(text) as unknown;
@@ -106,6 +124,7 @@ export async function POST(request: Request) {
       turnstile = await verifyTurnstileToken({
         token: payload.turnstileToken,
         secretKey: turnstileSecret,
+        expectedAction: "benchmark-submit",
       });
     } catch {
       return Response.json(

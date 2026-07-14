@@ -110,6 +110,15 @@ test("requires official country codes and every listed enum", () => {
   }
 });
 
+test("rejects markup and control characters in public grouping labels", () => {
+  for (const field of ["provider", "model", "planLabel"] as const) {
+    const payload = validPayload();
+    payload[field] = "<script>alert(1)</script>";
+    const result = validateSubmissionPayload(payload, PROMPT_IDS);
+    assert.equal(result.ok, false, `${field} should reject markup`);
+  }
+});
+
 test("requires 0/1 disqualifier flags and response metadata", () => {
   const translated = validPayload();
   translated.promptsTranslated = 2;

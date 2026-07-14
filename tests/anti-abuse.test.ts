@@ -66,6 +66,7 @@ test("Turnstile verification sends only the secret and response token", async ()
   assert.deepEqual(result, { success: true, errorCodes: [] });
   assert.match(requestUrl, /turnstile\/v0\/siteverify$/);
   assert.equal(requestInit?.method, "POST");
+  assert.ok(requestInit?.signal instanceof AbortSignal);
   const body = String(requestInit?.body);
   assert.match(body, /secret=private-test-secret/);
   assert.match(body, /response=participant-token/);
@@ -86,6 +87,24 @@ test("Turnstile failures remain structured and fail closed", async () => {
     fetchImpl: async () => new Response("Unavailable", { status: 503 }),
   });
   assert.deepEqual(unavailable, { success: false, errorCodes: ["turnstile-http-503"] });
+});
+
+test("Turnstile binds successful tokens to the benchmark action", async () => {
+  const accepted = await verifyTurnstileToken({
+    token: "token",
+    secretKey: "private-test-secret",
+    expectedAction: "benchmark-submit",
+    fetchImpl: async () => Response.json({ success: true, action: "benchmark-submit" }),
+  });
+  assert.deepEqual(accepted, { success: true, errorCodes: [] });
+
+  const mismatched = await verifyTurnstileToken({
+    token: "token",
+    secretKey: "private-test-secret",
+    expectedAction: "benchmark-submit",
+    fetchImpl: async () => Response.json({ success: true, action: "other-action" }),
+  });
+  assert.deepEqual(mismatched, { success: false, errorCodes: ["action-mismatch"] });
 });
 
 test("daily IP digests are deterministic within a day and unlinkable across days", async () => {

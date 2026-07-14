@@ -40,6 +40,8 @@ type CryptoImplementation = Pick<Crypto, "subtle">;
 type TurnstileOptions = {
   token: string;
   secretKey: string;
+  expectedAction?: string;
+  timeoutMs?: number;
   fetchImpl?: FetchImplementation;
 };
 
@@ -75,6 +77,8 @@ function bytesToHex(bytes: ArrayBuffer): string {
 export async function verifyTurnstileToken({
   token,
   secretKey,
+  expectedAction,
+  timeoutMs = 5_000,
   fetchImpl = fetch,
 }: TurnstileOptions): Promise<TurnstileVerificationResult> {
   if (!token.trim()) {
@@ -82,6 +86,9 @@ export async function verifyTurnstileToken({
   }
   if (!secretKey.trim()) {
     throw new Error("TURNSTILE_SECRET_KEY is not configured.");
+  }
+  if (!Number.isInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 10_000) {
+    throw new RangeError("Turnstile timeout must be from 1 to 10000 milliseconds.");
   }
 
   const body = new URLSearchParams({
@@ -92,6 +99,7 @@ export async function verifyTurnstileToken({
     method: "POST",
     headers: { "content-type": "application/x-www-form-urlencoded" },
     body,
+    signal: AbortSignal.timeout(timeoutMs),
   });
   if (!response.ok) {
     return { success: false, errorCodes: [`turnstile-http-${response.status}`] };
@@ -105,6 +113,9 @@ export async function verifyTurnstileToken({
   const errorCodes = Array.isArray(record["error-codes"])
     ? record["error-codes"].filter((value): value is string => typeof value === "string")
     : [];
+  if (record.success === true && expectedAction && record.action !== expectedAction) {
+    return { success: false, errorCodes: ["action-mismatch"] };
+  }
   return { success: record.success === true, errorCodes };
 }
 

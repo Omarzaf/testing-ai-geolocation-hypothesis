@@ -43,6 +43,13 @@ test("bounded JSON rejects invalid and oversized request bodies", async () => {
     })),
     (error: unknown) => error instanceof Error && "status" in error && error.status === 413,
   );
+  await assert.rejects(
+    readBoundedJson(new Request("http://localhost/api/submissions", {
+      method: "POST",
+      body: "x".repeat(120_001),
+    })),
+    (error: unknown) => error instanceof Error && "status" in error && error.status === 413,
+  );
 });
 
 test("honeypot recognizes only non-empty website strings", () => {
