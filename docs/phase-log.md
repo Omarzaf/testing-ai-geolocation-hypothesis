@@ -64,7 +64,7 @@ Verdict: **PASS**
 - Daily rate limiting stores only a rotating HMAC digest; raw IP addresses are never persisted or logged.
 - Request bodies are capped while streaming, the honeypot is enforced, duplicate ordering is locked, and public grouping labels reject markup and Unicode format controls.
 
-Evidence: `a7a5060`, `d9c3137`, `10b70c9`, `bb798cb`; focused anti-abuse and submission tests.
+Evidence: `a7a5060`, `d9c3137`, `10b70c9`, `bb798cb`, `04412c2`; focused anti-abuse and submission tests.
 
 ## Phase 6 — Website integration
 
