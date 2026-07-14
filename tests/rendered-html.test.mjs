@@ -58,6 +58,8 @@ test("uses one randomized core-2 session and submits the strict client contract"
   assert.match(app, /promptOrder\.map\(\(promptId\)/);
   assert.match(app, /clientTimezone/);
   assert.match(app, /uiLanguage/);
+  assert.match(app, /eligibleForPrimaryAnalysis/);
+  assert.match(app, /\["en", "ur", "other"\]/);
   assert.match(app, /reasoningToggle/);
   assert.match(app, /memoryPersonalization/);
   assert.match(app, /customInstructions/);

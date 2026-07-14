@@ -64,7 +64,7 @@ export const UI_COPY = {
       privacyItems: ["No name, email, sign-in, or account ID", "No GPS request or exact address", "Raw model responses never appear in public results", "Raw IP is never stored", "Public cells require at least five submissions"],
       privacyNote: "For anti-abuse, the server processes the connection IP transiently into an unlinkable daily HMAC counter. The raw IP is immediately discarded and never enters the research database.",
       optionLabels: {
-        uiLanguage: { en: "English", ur: "Urdu" },
+        uiLanguage: { en: "English", ur: "Urdu", other: "Another language" },
         platform: { web: "Web browser", ios: "iOS app", android: "Android app", desktop: "Desktop app" },
         reasoningToggle: { on: "On", off: "Off", unavailable: "Unavailable", unsure: "Unsure" },
         vpnUsed: { no: "No", yes: "Yes", unsure: "Unsure" },
@@ -134,6 +134,7 @@ export const UI_COPY = {
       score: "Objective reasoning score",
       privatePrefix: "Your model’s raw responses remain private. An aggregate result for",
       privateSuffix: "appears only after the privacy threshold is reached.",
+      excluded: "This run was stored, but its reported setup falls outside the primary analysis protocol and it will not contribute to the public aggregate.",
       results: "View aggregate results",
       home: "Return home",
     },
@@ -265,7 +266,7 @@ export const UI_COPY = {
       privacyItems: ["نام، ای میل، سائن اِن یا اکاؤنٹ ID نہیں", "GPS یا درست پتہ نہیں", "ماڈل کے خام جواب عوامی نتائج میں نہیں آتے", "خام IP کبھی محفوظ نہیں ہوتا", "عوامی گروہ کے لیے کم از کم پانچ اندراج"],
       privacyNote: "غلط استعمال روکنے کے لیے سرور رابطے کا IP عارضی طور پر ایک ناقابلِ ربط روزانہ HMAC شمار میں بدلتا ہے۔ خام IP فوراً ضائع ہو جاتا اور تحقیقی ڈیٹابیس میں کبھی داخل نہیں ہوتا۔",
       optionLabels: {
-        uiLanguage: { en: "انگریزی", ur: "اردو" },
+        uiLanguage: { en: "انگریزی", ur: "اردو", other: "کوئی دوسری زبان" },
         platform: { web: "ویب براؤزر", ios: "iOS ایپ", android: "Android ایپ", desktop: "ڈیسک ٹاپ ایپ" },
         reasoningToggle: { on: "چالو", off: "بند", unavailable: "دستیاب نہیں", unsure: "معلوم نہیں" },
         vpnUsed: { no: "نہیں", yes: "ہاں", unsure: "معلوم نہیں" },
@@ -335,6 +336,7 @@ export const UI_COPY = {
       score: "معروضی استدلال کا اسکور",
       privatePrefix: "ماڈل کے خام جواب نجی رہیں گے۔",
       privateSuffix: "کا مجموعی نتیجہ رازداری کی حد پوری ہونے کے بعد دکھے گا۔",
+      excluded: "یہ ٹیسٹ محفوظ ہو گیا، مگر بتائی گئی ترتیب بنیادی تجزیاتی طریقۂ کار سے باہر ہے، اس لیے یہ عوامی مجموعی نتیجے میں شامل نہیں ہوگا۔",
       results: "مجموعی نتائج دیکھیں",
       home: "مرکزی صفحے پر واپس جائیں",
     },

@@ -117,6 +117,20 @@ test("rejects markup and control characters in public grouping labels", () => {
     const result = validateSubmissionPayload(payload, PROMPT_IDS);
     assert.equal(result.ok, false, `${field} should reject markup`);
   }
+
+  for (const field of ["city", "provider", "model", "planLabel"] as const) {
+    const payload = validPayload();
+    payload[field] = `trusted\u202Ename`;
+    const result = validateSubmissionPayload(payload, PROMPT_IDS);
+    assert.equal(result.ok, false, `${field} should reject Unicode format controls`);
+  }
+});
+
+test("accepts truthful non-English product UI metadata", () => {
+  const payload = validPayload();
+  payload.uiLanguage = "other";
+  const result = validateSubmissionPayload(payload, PROMPT_IDS);
+  assert.equal(result.ok, true);
 });
 
 test("requires 0/1 disqualifier flags and response metadata", () => {

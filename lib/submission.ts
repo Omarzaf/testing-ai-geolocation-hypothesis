@@ -1,7 +1,7 @@
 export const EXPECTED_PROMPT_COUNT = 15;
 
 export const ACCESS_TYPE_VALUES = ["Free", "Paid", "Not sure"] as const;
-export const UI_LANGUAGE_VALUES = ["en", "ur"] as const;
+export const UI_LANGUAGE_VALUES = ["en", "ur", "other"] as const;
 export const PLATFORM_VALUES = ["web", "ios", "android", "desktop"] as const;
 export const REASONING_TOGGLE_VALUES = ["on", "off", "unavailable", "unsure"] as const;
 export const VPN_USED_VALUES = ["yes", "no", "unsure"] as const;
@@ -168,7 +168,7 @@ function requireSafeLabel(
   options: { minLength: number; maxLength: number },
 ): string {
   const label = requireString(value, path, { ...options, collapseWhitespace: true });
-  if (/[<>{}\u0000-\u001F\u007F]/u.test(label)) {
+  if (/[<>{}\p{Cf}\u0000-\u001F\u007F]/u.test(label)) {
     fail(path, "Contains unsupported markup or control characters.");
   }
   return label;
@@ -292,7 +292,7 @@ export function parseSubmissionPayload(
     maxLength: 80,
     collapseWhitespace: true,
   });
-  if (/[<>{}]/.test(city)) {
+  if (/[<>{}\p{Cf}]/u.test(city)) {
     fail("payload.city", "City contains unsupported characters.");
   }
 

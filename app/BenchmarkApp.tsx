@@ -109,7 +109,11 @@ export function BenchmarkApp() {
   const [submitError, setSubmitError] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [turnstileToken, setTurnstileToken] = useState("");
-  const [score, setScore] = useState<{ score: number; maxScore: number } | null>(null);
+  const [score, setScore] = useState<{
+    score: number;
+    maxScore: number;
+    eligibleForPrimaryAnalysis: boolean;
+  } | null>(null);
   const [clarityRating, setClarityRating] = useState(0);
   const [confusingPromptId, setConfusingPromptId] = useState("");
   const [feedbackReason, setFeedbackReason] = useState<FeedbackReason>("");
@@ -342,12 +346,26 @@ export function BenchmarkApp() {
         headers: { "content-type": "application/json" },
         body: JSON.stringify(body),
       });
-      const payload = (await response.json()) as { error?: string; score?: number; maxScore?: number };
-      if (!response.ok || typeof payload.score !== "number" || typeof payload.maxScore !== "number") {
+      const payload = (await response.json()) as {
+        error?: string;
+        score?: number;
+        maxScore?: number;
+        eligibleForPrimaryAnalysis?: boolean;
+      };
+      if (
+        !response.ok ||
+        typeof payload.score !== "number" ||
+        typeof payload.maxScore !== "number" ||
+        typeof payload.eligibleForPrimaryAnalysis !== "boolean"
+      ) {
         throw new Error(payload.error ?? copy.errors.save);
       }
 
-      setScore({ score: payload.score, maxScore: payload.maxScore });
+      setScore({
+        score: payload.score,
+        maxScore: payload.maxScore,
+        eligibleForPrimaryAnalysis: payload.eligibleForPrimaryAnalysis,
+      });
       setTurnstileToken("");
       setResponses(createResponseDrafts());
       setPromptOrder([]);
@@ -492,7 +510,7 @@ export function BenchmarkApp() {
                     <label htmlFor="ui-language">{copy.setup.uiLanguage}</label>
                     <select id="ui-language" value={uiLanguage} onChange={(event) => setUiLanguage(event.target.value as UiLanguage | "")}>
                       <option value="">{copy.setup.requiredChoice}</option>
-                      {(["en", "ur"] as const).map((value) => <option value={value} key={value}>{copy.setup.optionLabels.uiLanguage[value]}</option>)}
+                      {(["en", "ur", "other"] as const).map((value) => <option value={value} key={value}>{copy.setup.optionLabels.uiLanguage[value]}</option>)}
                     </select>
                   </div>
                   <div>
@@ -690,6 +708,7 @@ export function BenchmarkApp() {
           <h1>{copy.success.title}</h1>
           <p className="success-score"><b dir="ltr">{score.maxScore > 0 ? Math.round((score.score / score.maxScore) * 100) : 0}%</b><span>{copy.success.score}</span></p>
           <p>{copy.success.privatePrefix} <bdi dir="auto">{city}, {selectedCountryLabel}</bdi> {copy.success.privateSuffix}</p>
+          {!score.eligibleForPrimaryAnalysis && <p className="protocol-note">{copy.success.excluded}</p>}
           <div className="hero-actions">
             <button className="button button-primary" type="button" onClick={() => navigate("results")}>{copy.success.results}</button>
             <button className="text-button" type="button" onClick={() => { setScore(null); setStage("intro"); }}>{copy.success.home}</button>
