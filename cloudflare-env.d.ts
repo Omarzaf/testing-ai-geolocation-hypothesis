@@ -23,6 +23,8 @@ declare module "cloudflare:workers" {
   export const env: {
     DB: D1Database;
     ASSETS: Fetcher;
+    TURNSTILE_SITE_KEY: string;
+    TURNSTILE_SECRET_KEY: string;
+    RATE_LIMIT_HMAC_SECRET: string;
   };
 }
-
