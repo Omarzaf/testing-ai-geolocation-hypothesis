@@ -41,3 +41,7 @@ tsconfig.tsbuildinfo
 /.wrangler/
 /outputs/
 /work/
+
+# Private benchmark material. Public prompts are committed; answer keys are not.
+/docs/benchmark-v2-plan.md
+/private/
