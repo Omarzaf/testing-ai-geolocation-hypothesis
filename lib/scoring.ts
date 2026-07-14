@@ -2,7 +2,7 @@ export type TokenReportStatus = "reported" | "unknown" | "refused" | "absent" | 
 
 export type ReasoningTokenReport = {
   status: TokenReportStatus;
-  value?: number;
+  value: number | null;
   raw?: string;
 };
 
@@ -145,8 +145,9 @@ const WORD_PATTERN = /[\p{L}\p{N}]+(?:['’\-][\p{L}\p{N}]+)*/gu;
 const WORD_ONLY_PATTERN = /[\p{L}]+(?:['’\-][\p{L}]+)*/gu;
 const NUMBER_PATTERN = /[-+]?(?:\d*\.\d+|\d+(?:,\d{3})*)(?:\s*\/\s*[-+]?(?:\d*\.\d+|\d+(?:,\d{3})*))?%?/g;
 const TOKEN_LABEL_PATTERN = /^\s*REASONING TOKENS\b/i;
-const TOKEN_LINE_PATTERN = /^\s*REASONING TOKENS:\s*(\d+|["“”']?unknown["“”']?|refused)\s*$/i;
+const TOKEN_LINE_PATTERN = /^\s*REASONING TOKENS:\s*(?:(["“”']?unknown["“”']?)|(refused)|((?:about\s+|~\s*)?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\s+tokens?)?))\s*$/i;
 const TOKEN_REFUSAL_PATTERN = /(?:\b(?:cannot|can't|unable|refuse|won't)\b[\s\S]{0,100}\b(?:reasoning|thinking)\s+tokens?\b|\b(?:reasoning|thinking)\s+tokens?\b[\s\S]{0,100}\b(?:unavailable|inaccessible|cannot|refuse)\b)/i;
+const UNLABELED_ACCESS_REFUSAL_PATTERN = /^\s*I\s+(?:do not|don't|cannot|can't)\s+have access to (?:that|this) information[.!]?\s*$/im;
 
 function normalizeText(value: string, caseSensitive = false): string {
   const normalized = value.normalize("NFKC").replace(/[“”]/g, '"').replace(/[’]/g, "'");
@@ -195,26 +196,30 @@ function splitReasoningTokenLine(response: string): { answerText: string; report
 
   if (markerIndexes.length !== 1 || markerIndexes[0] !== lastNonEmptyIndex) {
     if (markerIndexes.length > 0) {
-      return { answerText, report: { status: "invalid", raw: markerLines.join("\n") } };
+      return { answerText, report: { status: "invalid", value: null, raw: markerLines.join("\n") } };
     }
     return {
       answerText,
-      report: TOKEN_REFUSAL_PATTERN.test(response)
-        ? { status: "refused" }
-        : { status: "absent" },
+      report: TOKEN_REFUSAL_PATTERN.test(response) || UNLABELED_ACCESS_REFUSAL_PATTERN.test(response)
+        ? { status: "refused", value: null }
+        : { status: "absent", value: null },
     };
   }
 
   const raw = markerLines[0];
   const match = raw.match(TOKEN_LINE_PATTERN);
-  if (!match) return { answerText, report: { status: "invalid", raw } };
-  const value = match[1].replace(/["“”']/g, "").toLocaleLowerCase();
-  if (value === "unknown") return { answerText, report: { status: "unknown", raw } };
-  if (value === "refused") return { answerText, report: { status: "refused", raw } };
-  const parsed = Number(value);
+  if (!match) return { answerText, report: { status: "invalid", value: null, raw } };
+  if (match[1]) return { answerText, report: { status: "unknown", value: null, raw } };
+  if (match[2]) return { answerText, report: { status: "refused", value: null, raw } };
+  const numericText = match[3]
+    .replace(/^about\s+/i, "")
+    .replace(/^~\s*/, "")
+    .replace(/\s+tokens?$/i, "")
+    .replace(/,/g, "");
+  const parsed = Number(numericText);
   return Number.isSafeInteger(parsed)
     ? { answerText, report: { status: "reported", value: parsed, raw } }
-    : { answerText, report: { status: "invalid", raw } };
+    : { answerText, report: { status: "invalid", value: null, raw } };
 }
 
 export function extractReasoningTokenReport(response: string): ReasoningTokenReport {
@@ -223,8 +228,8 @@ export function extractReasoningTokenReport(response: string): ReasoningTokenRep
 
 export function estimateVisibleOutput(response: string): { wordCount: number; tokenEstimate: number } {
   const wordCount = extractWords(response).length;
-  const visibleCodePoints = [...response.replace(/\s/g, "")].length;
-  return { wordCount, tokenEstimate: visibleCodePoints === 0 ? 0 : Math.ceil(visibleCodePoints / 4) };
+  // A deterministic approximation of visible tokens that includes whitespace.
+  return { wordCount, tokenEstimate: Math.round(response.length / 4) };
 }
 
 export function analyzeResponse(response: string): ResponseAnalysis {

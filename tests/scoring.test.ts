@@ -210,16 +210,35 @@ test("reasoning-token extraction reports every distinct status", () => {
   assert.deepEqual(extractReasoningTokenReport("Answer.\nREASONING TOKENS: 19"), {
     status: "reported", value: 19, raw: "REASONING TOKENS: 19",
   });
-  assert.equal(extractReasoningTokenReport('Answer.\nREASONING TOKENS: "unknown"').status, "unknown");
-  assert.equal(extractReasoningTokenReport("I cannot access reasoning token counts.").status, "refused");
-  assert.equal(extractReasoningTokenReport("Answer without a report.").status, "absent");
-  assert.equal(extractReasoningTokenReport("REASONING TOKENS: 4\nAnswer follows.").status, "invalid");
+  assert.deepEqual(extractReasoningTokenReport("Answer.\nREASONING TOKENS: about 1,200 tokens"), {
+    status: "reported", value: 1200, raw: "REASONING TOKENS: about 1,200 tokens",
+  });
+  assert.deepEqual(extractReasoningTokenReport("Answer.\nREASONING TOKENS: ~500"), {
+    status: "reported", value: 500, raw: "REASONING TOKENS: ~500",
+  });
+  assert.deepEqual(extractReasoningTokenReport('Answer.\nREASONING TOKENS: "unknown"'), {
+    status: "unknown", value: null, raw: 'REASONING TOKENS: "unknown"',
+  });
+  assert.deepEqual(extractReasoningTokenReport("I cannot access reasoning token counts."), {
+    status: "refused", value: null,
+  });
+  assert.deepEqual(extractReasoningTokenReport("I don't have access to that information"), {
+    status: "refused", value: null,
+  });
+  assert.deepEqual(extractReasoningTokenReport("Answer without a report."), {
+    status: "absent", value: null,
+  });
+  assert.deepEqual(extractReasoningTokenReport("REASONING TOKENS: about 1,200 tokens\nAnswer follows."), {
+    status: "invalid", value: null, raw: "REASONING TOKENS: about 1,200 tokens",
+  });
+  assert.equal(extractReasoningTokenReport("about 1,200 tokens").status, "absent");
   assert.equal(extractReasoningTokenReport("Answer.\nREASONING TOKENS: about twenty").status, "invalid");
   assert.equal(extractReasoningTokenReport("Answer.\nREASONING TOKENS: 2.5").status, "invalid");
 });
 
 test("visible estimates and structure flags remain separate from hidden-token reports", () => {
   assert.deepEqual(estimateVisibleOutput("One two."), { wordCount: 2, tokenEstimate: 2 });
+  assert.deepEqual(estimateVisibleOutput("a          b"), { wordCount: 2, tokenEstimate: 3 });
   const analysis = analyzeResponse("FINAL ANSWER: amber\n- first item\n```txt\ncode\n```\nREASONING TOKENS: 9");
   assert.equal(analysis.tokenReport.status, "reported");
   assert.ok(analysis.visibleWordCount > analysis.answerWordCount);
