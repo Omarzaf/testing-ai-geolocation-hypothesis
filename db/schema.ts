@@ -59,7 +59,7 @@ export const responses = sqliteTable(
     reasoningTokenStatus: text("reasoning_token_status").notNull().default("missing"),
     visibleTokenEstimate: integer("visible_token_estimate"),
     visibleWordCount: integer("visible_word_count"),
-    structureFlags: text("structure_flags", { mode: "json" }).$type<string[]>(),
+    structureFlags: text("structure_flags", { mode: "json" }).$type<Record<string, boolean | number>>(),
     score: integer("score").notNull(),
     maxScore: integer("max_score").notNull(),
   },
