@@ -124,6 +124,14 @@ test("rejects markup and control characters in public grouping labels", () => {
     const result = validateSubmissionPayload(payload, PROMPT_IDS);
     assert.equal(result.ok, false, `${field} should reject Unicode format controls`);
   }
+
+  const cityWithControl = validPayload();
+  cityWithControl.city = "Trusted\u0001City";
+  assert.equal(
+    validateSubmissionPayload(cityWithControl, PROMPT_IDS).ok,
+    false,
+    "city should reject ASCII control characters",
+  );
 });
 
 test("accepts truthful non-English product UI metadata", () => {

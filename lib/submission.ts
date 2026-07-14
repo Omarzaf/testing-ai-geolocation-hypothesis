@@ -292,7 +292,7 @@ export function parseSubmissionPayload(
     maxLength: 80,
     collapseWhitespace: true,
   });
-  if (/[<>{}\p{Cf}]/u.test(city)) {
+  if (/[<>{}\p{Cf}\u0000-\u001F\u007F]/u.test(city)) {
     fail("payload.city", "City contains unsupported characters.");
   }
 
