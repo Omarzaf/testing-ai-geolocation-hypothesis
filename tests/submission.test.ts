@@ -12,6 +12,7 @@ const PROMPT_IDS = Array.from(
 );
 
 function validPayload() {
+  const promptOrder = [...PROMPT_IDS].reverse();
   return {
     city: "  Lahore   City  ",
     country: "pk",
@@ -28,10 +29,10 @@ function validPayload() {
     promptsTranslated: 0,
     completedInOneSitting: 1,
     sessionVariant: "A",
-    promptOrder: [...PROMPT_IDS].reverse(),
+    promptOrder,
     clientTimezone: "Asia/Karachi",
     benchmarkVersion: "core-2.0",
-    responses: PROMPT_IDS.map((promptId) => ({
+    responses: promptOrder.map((promptId) => ({
       promptId,
       responseText: `Complete answer for ${promptId}`,
       regenerated: 0,
@@ -135,6 +136,15 @@ test("requires promptOrder and responses to contain the exact unique prompt set"
   const unknownResponse = validPayload();
   unknownResponse.responses[0].promptId = "unknown-prompt";
   assert.equal(validateSubmissionPayload(unknownResponse, PROMPT_IDS).ok, false);
+
+  const reorderedResponses = validPayload();
+  [reorderedResponses.responses[0], reorderedResponses.responses[1]] = [
+    reorderedResponses.responses[1],
+    reorderedResponses.responses[0],
+  ];
+  const orderResult = validateSubmissionPayload(reorderedResponses, PROMPT_IDS);
+  assert.equal(orderResult.ok, false);
+  if (!orderResult.ok) assert.equal(orderResult.error.path, "payload.responses");
 });
 
 test("enforces bounded response and Turnstile token sizes", () => {

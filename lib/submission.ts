@@ -308,6 +308,12 @@ export function parseSubmissionPayload(
     fail("payload.benchmarkVersion", "Benchmark version contains unsupported characters.");
   }
 
+  const promptOrder = requireExactPromptSet(record.promptOrder, requiredIds, "payload.promptOrder");
+  const responses = parseResponses(record.responses, requiredIds);
+  if (responses.some(({ promptId }, index) => promptId !== promptOrder[index])) {
+    fail("payload.responses", "Responses must follow promptOrder exactly.");
+  }
+
   return {
     city,
     country,
@@ -351,10 +357,10 @@ export function parseSubmissionPayload(
       "payload.completedInOneSitting",
     ),
     sessionVariant: requireEnum(record.sessionVariant, SESSION_VARIANT_VALUES, "payload.sessionVariant"),
-    promptOrder: requireExactPromptSet(record.promptOrder, requiredIds, "payload.promptOrder"),
+    promptOrder,
     clientTimezone,
     benchmarkVersion,
-    responses: parseResponses(record.responses, requiredIds),
+    responses,
     feedback: parseFeedback(record.feedback, requiredIds),
     website: requireString(record.website, "payload.website", { maxLength: 200 }),
     turnstileToken: requireString(record.turnstileToken, "payload.turnstileToken", {

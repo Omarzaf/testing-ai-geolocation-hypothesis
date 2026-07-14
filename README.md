@@ -77,16 +77,43 @@ print them in logs.
 
 Production changes require an explicit human checkpoint before secrets,
 migrations, private scoring rules, or a public deployment are changed.
+The source-level `wrangler.jsonc` is input to the vinext build and is not a
+deployable Worker configuration. Every remote command must use the generated
+`dist/server/wrangler.json`, which contains the built entry point, assets, and D1
+binding.
 
-1. Run the complete local verification suite.
+1. Verify and build the exact commit, then validate the generated deployment:
+
+   ```bash
+   pnpm test
+   pnpm lint
+   pnpm exec tsc --noEmit
+   pnpm build
+   pnpm exec wrangler deploy --config dist/server/wrangler.json --dry-run
+   ```
+
 2. Confirm the built client and tracked tree contain no expected answers.
-3. Apply the new D1 migration.
-4. Seed all 30 private scoring rows (15 prompts × A/B).
-5. Configure Turnstile and the rate-limit HMAC secret.
-6. Deploy the exact verified commit to the existing Worker.
-7. Complete one production submission, verify the stored row and derived
+3. After the production checkpoint, apply the migration and private seed through
+   the generated configuration:
+
+   ```bash
+   pnpm exec wrangler d1 execute DB --config dist/server/wrangler.json --remote --file drizzle/0001_tranquil_captain_marvel.sql
+   pnpm scoring:seed
+   pnpm exec wrangler d1 execute DB --config dist/server/wrangler.json --remote --file private/core-2-scoring.sql
+   pnpm exec wrangler d1 execute DB --config dist/server/wrangler.json --remote --command "SELECT COUNT(*) AS scoring_rows FROM benchmark_scoring_rules WHERE benchmark_version = 'core-2.0'"
+   ```
+
+4. Configure `TURNSTILE_SITE_KEY`, `TURNSTILE_SECRET_KEY`, and
+   `RATE_LIMIT_HMAC_SECRET` in Cloudflare's secret store for this Worker.
+5. Deploy the verified build with the same generated configuration:
+
+   ```bash
+   pnpm exec wrangler deploy --config dist/server/wrangler.json
+   ```
+
+6. Complete one production submission, verify the stored row and derived
    fields, then remove only that marked test submission.
-8. Verify the main site, `/embed`, and the aggregate-only `/api/stats` endpoint.
+7. Verify the main site, `/embed`, and the aggregate-only `/api/stats` endpoint.
 
 ## Website integration
 
@@ -99,7 +126,8 @@ migrations, private scoring rules, or a public deployment are changed.
 
 - Results groups remain hidden until at least five eligible submissions exist.
 - Cross-region claims require at least ten submissions per comparison cell.
-- VPN, regeneration, memory/custom instructions, translated prompts, and
+- Non-English tested-product UI, VPN/unknown VPN state, regeneration,
+  memory/custom instructions on or unknown, translated prompts, and
   multi-sitting runs are stored but excluded from primary analysis.
 - Model-reported reasoning-token numbers are explicitly unverified self-reports;
   visible response length is estimated independently.

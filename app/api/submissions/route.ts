@@ -299,7 +299,7 @@ export async function GET(request: Request) {
         .prepare(
           `SELECT
              COUNT(*) AS submissions,
-             COUNT(DISTINCT LOWER(city)) AS cities,
+             COUNT(DISTINCT UPPER(COALESCE(country, '')) || '|' || LOWER(TRIM(city))) AS cities,
              COUNT(DISTINCT provider || '|' || model) AS models
            FROM submissions
            WHERE benchmark_version = ? AND quality_status = 'eligible'`,

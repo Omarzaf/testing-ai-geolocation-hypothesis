@@ -57,19 +57,12 @@ type ResultsPayload = {
   groups: ResultGroup[];
   privacyThreshold: number;
   benchmarkVersion: ResultsVersion;
-  scoredItemCount?: number;
   error?: string;
 };
 
 const FEEDBACK_REASONS = ["", "unclear", "answer disputed", "technical issue", "too long"] as const;
 const ACCESS_VALUES: readonly AccessType[] = ["Free", "Paid", "Not sure"];
 const RESULTS_VERSIONS: readonly ResultsVersion[] = ["core-2.0", "core-1.0"];
-const CORE_2_SCORED_PROMPT_COUNT = 13;
-const SCORED_ITEMS_BY_VERSION: Record<ResultsVersion, number> = {
-  "core-2.0": CORE_2_SCORED_PROMPT_COUNT,
-  "core-1.0": 10,
-};
-
 function createResponseDrafts(): Record<string, ResponseDraft> {
   return Object.fromEntries(
     BENCHMARK_PROMPTS.map((prompt) => [
@@ -77,13 +70,6 @@ function createResponseDrafts(): Record<string, ResponseDraft> {
       { responseText: "", regenerated: false, responseSecondsBucket: "" },
     ]),
   );
-}
-
-function confidenceInterval(score: number, sampleSize: number, scoredItemCount: number): string {
-  const p = score / 100;
-  const observations = Math.max(1, sampleSize * scoredItemCount);
-  const margin = 1.96 * Math.sqrt((p * (1 - p)) / observations) * 100;
-  return `≈ ${Math.max(0, score - margin).toFixed(1)}–${Math.min(100, score + margin).toFixed(1)}%`;
 }
 
 function binaryFlag(value: Exclude<BinaryChoice, "">): 0 | 1 {
@@ -760,7 +746,7 @@ export function BenchmarkApp() {
                         <td data-label={copy.results.headers[3]}><bdi dir="ltr">{group.sampleSize}</bdi>{group.sampleSize < 30 && <small>{copy.results.exploratory}</small>}</td>
                         <td data-label={copy.results.headers[4]}>
                           <div className="score-cell"><span><i style={{ width: `${group.averageScore}%` }} /></span><b dir="ltr">{group.averageScore}%</b></div>
-                          <small>{copy.results.approx} <bdi dir="ltr">{confidenceInterval(group.averageScore, group.sampleSize, results.scoredItemCount ?? SCORED_ITEMS_BY_VERSION[resultsVersion])}</bdi></small>
+                          <small>{copy.results.descriptive}</small>
                         </td>
                       </tr>
                     ))}</tbody>

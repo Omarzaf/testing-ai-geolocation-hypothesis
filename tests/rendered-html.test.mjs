@@ -93,18 +93,19 @@ test("keeps token claims and raw-IP handling scientifically honest", async () =>
 });
 
 test("gates submission on Turnstile and requests explicitly versioned results", async () => {
-  const [app, widget] = await Promise.all([
+  const [app, widget, copy] = await Promise.all([
     readFile(new URL("../app/BenchmarkApp.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/TurnstileWidget.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../lib/uiCopy.ts", import.meta.url), "utf8"),
   ]);
 
   assert.match(app, /<TurnstileWidget/);
   assert.match(app, /turnstileToken/);
   assert.match(app, /!turnstileToken/);
   assert.match(app, /fetch\(`\/api\/submissions\?benchmarkVersion=\$\{encodeURIComponent\(version\)\}`\)/);
-  assert.match(app, /"core-2\.0": CORE_2_SCORED_PROMPT_COUNT/);
-  assert.match(app, /CORE_2_SCORED_PROMPT_COUNT = 13/);
-  assert.match(app, /"core-1\.0": 10/);
+  assert.match(copy, /13 objective items per run/i);
+  assert.match(copy, /no confidence interval is shown/i);
+  assert.doesNotMatch(app, /confidenceInterval/);
   assert.match(widget, /\/api\/config/);
   assert.match(widget, /challenges\.cloudflare\.com\/turnstile/);
   assert.match(widget, /expired-callback/);

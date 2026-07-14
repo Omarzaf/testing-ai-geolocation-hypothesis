@@ -23,7 +23,7 @@ test("stats route and website snippet expose aggregate fields only", async () =>
 
   assert.match(statsRoute, /access-control-allow-origin.*\*/i);
   assert.match(statsRoute, /COUNT\(\*\) AS submissions/);
-  assert.match(statsRoute, /COUNT\(DISTINCT LOWER\(city\)\) AS cities/);
+  assert.match(statsRoute, /COUNT\(DISTINCT[\s\S]+COALESCE\(country,[\s\S]+LOWER\(TRIM\(city\)\)[\s\S]+AS cities/);
   assert.doesNotMatch(statsRoute, /response_text|plan_label|submitted_day|SELECT\s+\*/i);
   assert.match(snippet, /api\/stats/);
   assert.match(snippet, /github\.com\/Omarzaf\/testing-ai-geolocation-hypothesis/);
