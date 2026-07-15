@@ -7,6 +7,12 @@ const RATE_LIMIT_UPSERT_SQL = `
     updated_at = CURRENT_TIMESTAMP
   RETURNING count
 `;
+const RATE_LIMIT_RELEASE_SQL = `
+  UPDATE submission_rate_limits
+  SET count = MAX(count - 1, 0), updated_at = CURRENT_TIMESTAMP
+  WHERE bucket_day = ? AND ip_digest = ?
+  RETURNING count
+`;
 
 export type TurnstileVerificationResult = {
   success: boolean;
@@ -185,4 +191,21 @@ export async function reserveDailySubmission({
     remaining: Math.max(0, limit - count),
     retryAfterSeconds: secondsUntilNextUtcDay(now),
   };
+}
+
+/** Returns a reserved daily slot after a failed write so retries are not counted as submissions. */
+export async function releaseDailySubmission({
+  database,
+  ipAddress,
+  hmacSecret,
+  now = new Date(),
+  cryptoImpl = globalThis.crypto,
+}: Omit<RateLimitOptions, "limit">): Promise<void> {
+  const { bucketDay, digest } = await deriveDailyIpDigest({
+    ipAddress,
+    hmacSecret,
+    now,
+    cryptoImpl,
+  });
+  await database.prepare(RATE_LIMIT_RELEASE_SQL).bind(bucketDay, digest).first();
 }

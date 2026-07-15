@@ -5,11 +5,19 @@ import {
   parseSubmissionPayload,
   validateSubmissionPayload,
 } from "../lib/submission.ts";
+import { BENCHMARK_PROMPTS } from "../lib/benchmark.ts";
 
 const PROMPT_IDS = Array.from(
   { length: EXPECTED_PROMPT_COUNT },
   (_, index) => `prompt-${String(index + 1).padStart(2, "0")}`,
 );
+
+// assertRequiredPromptIds throws a RangeError (not a SubmissionValidationError)
+// on a count mismatch, which would turn every POST into a generic 500. Lock the
+// two constants together so a drift fails CI instead of production.
+test("benchmark prompt count matches the submission validator's expectation", () => {
+  assert.equal(BENCHMARK_PROMPTS.length, EXPECTED_PROMPT_COUNT);
+});
 
 function validPayload() {
   const promptOrder = [...PROMPT_IDS].reverse();

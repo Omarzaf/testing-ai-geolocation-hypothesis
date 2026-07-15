@@ -1,5 +1,5 @@
 import { BENCHMARK_PROMPTS, BENCHMARK_VERSION } from "../../../lib/benchmark.ts";
-import { reserveDailySubmission, verifyTurnstileToken } from "../../../lib/antiAbuse.server.ts";
+import { releaseDailySubmission, reserveDailySubmission, verifyTurnstileToken } from "../../../lib/antiAbuse.server.ts";
 import {
   BenchmarkSessionError,
   assertBenchmarkAssignment,
@@ -219,7 +219,20 @@ function localFallbackIp(request: Request): string {
 export async function POST(request: Request) {
   try {
     const rawPayload = await readBoundedJson(request);
-    if (hasHoneypotValue(rawPayload)) return Response.json({ ok: true }, { status: 201 });
+    if (hasHoneypotValue(rawPayload)) {
+      // Mirror the real success shape so the discarding path is
+      // indistinguishable to bots and does not crash the legitimate client.
+      return Response.json(
+        {
+          ok: true,
+          score: 0,
+          maxScore: 0,
+          eligibleForPrimaryAnalysis: false,
+          message: "Your anonymous benchmark response was added.",
+        },
+        { status: 201 },
+      );
+    }
 
     const validation = validateSubmissionPayload(rawPayload, CURRENT_PROMPT_IDS);
     if (!validation.ok) {
@@ -407,7 +420,22 @@ export async function POST(request: Request) {
         ),
     ];
 
-    await database.batch(statements);
+    try {
+      await database.batch(statements);
+    } catch (error) {
+      // A failed write must not count against the daily limit, or transient
+      // D1 errors could lock an honest participant out for the rest of the day.
+      try {
+        await releaseDailySubmission({
+          database,
+          ipAddress: clientIp,
+          hmacSecret: rateLimitSecret,
+        });
+      } catch {
+        // Best-effort release; the original failure is what matters.
+      }
+      throw error;
+    }
     try {
       await database.prepare("DELETE FROM submission_rate_limits WHERE bucket_day < DATE('now', '-2 day')").run();
     } catch {

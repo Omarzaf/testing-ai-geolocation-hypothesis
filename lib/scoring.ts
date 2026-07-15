@@ -192,9 +192,11 @@ const TOKEN_LINE_PATTERN = /^\s*REASONING TOKENS:\s*(?:(["“”']?unknown["“�
 const TOKEN_REFUSAL_PATTERN = /(?:\b(?:cannot|can't|unable|refuse|won't)\b[\s\S]{0,100}\b(?:reasoning|thinking)\s+tokens?\b|\b(?:reasoning|thinking)\s+tokens?\b[\s\S]{0,100}\b(?:unavailable|inaccessible|cannot|refuse)\b)/i;
 const UNLABELED_ACCESS_REFUSAL_PATTERN = /^\s*I\s+(?:do not|don't|cannot|can't)\s+have access to (?:that|this) information[.!]?\s*$/im;
 
+// Case mapping must stay locale-invariant (never toLocale*): under a Turkish
+// default locale "I" lowercases to "ı", silently breaking answer matching.
 function normalizeText(value: string, caseSensitive = false): string {
   const normalized = value.normalize("NFKC").replace(/[“”]/g, '"').replace(/[’]/g, "'");
-  return caseSensitive ? normalized : normalized.toLocaleLowerCase();
+  return caseSensitive ? normalized : normalized.toLowerCase();
 }
 
 function extractWords(value: string): string[] {
@@ -385,17 +387,31 @@ function scoreExact(rule: ExactRule, answerText: string): boolean {
     normalizeText(collapse(unwrapHarmlessMarkdown(rule.expected)), rule.caseSensitive);
 }
 
+const REGEX_CACHE = new Map<string, RegExp>();
+
+function compileRegex(pattern: string, flags?: string): RegExp {
+  const key = `${flags ?? ""} ${pattern}`;
+  let regex = REGEX_CACHE.get(key);
+  if (!regex) {
+    regex = new RegExp(pattern, flags);
+    REGEX_CACHE.set(key, regex);
+  }
+  // Sticky/global regexes carry lastIndex between tests; reset before reuse.
+  regex.lastIndex = 0;
+  return regex;
+}
+
 function scoreRegex(rule: RegexRule, answerText: string): boolean {
   const text = unwrapHarmlessMarkdown(answerText);
   if (rule.sentenceCount !== undefined && splitSentences(text).length !== rule.sentenceCount) return false;
-  if (rule.forbiddenPatterns?.some((pattern) => new RegExp(pattern, rule.flags).test(text))) return false;
-  return new RegExp(rule.pattern, rule.flags).test(text);
+  if (rule.forbiddenPatterns?.some((pattern) => compileRegex(pattern, rule.flags).test(text))) return false;
+  return compileRegex(rule.pattern, rule.flags).test(text);
 }
 
 function scoreRegexSet(rule: RegexSetRule, answerText: string): boolean {
   const text = unwrapHarmlessMarkdown(answerText);
-  if (rule.forbiddenPatterns?.some((pattern) => new RegExp(pattern, rule.flags).test(text))) return false;
-  const matches = rule.patterns.filter((pattern) => new RegExp(pattern, rule.flags).test(text)).length;
+  if (rule.forbiddenPatterns?.some((pattern) => compileRegex(pattern, rule.flags).test(text))) return false;
+  const matches = rule.patterns.filter((pattern) => compileRegex(pattern, rule.flags).test(text)).length;
   return matches >= rule.minimumMatches;
 }
 
@@ -493,7 +509,7 @@ const ORDINAL_POSITIONS: Readonly<Record<string, number>> = {
 function parsePosition(value: string): number | null {
   const numeric = Number(value);
   if (Number.isInteger(numeric)) return numeric;
-  return ORDINAL_POSITIONS[value.toLocaleLowerCase()] ?? null;
+  return ORDINAL_POSITIONS[value.toLowerCase()] ?? null;
 }
 
 function parseOrderingAssertions(answerText: string, expectedLength: number): {
@@ -552,7 +568,7 @@ function scoreOrdering(rule: OrderingRule, answerText: string): boolean {
     const left = expectedPosition.get(normalize(match[1]));
     const right = expectedPosition.get(normalize(match[4]));
     if (left === undefined || right === undefined) continue;
-    const directionIsValid = match[3].toLocaleLowerCase() === "before" ? left < right : left > right;
+    const directionIsValid = match[3].toLowerCase() === "before" ? left < right : left > right;
     const immediacyIsValid = !match[2] || Math.abs(left - right) === 1;
     if (!directionIsValid || !immediacyIsValid) return false;
   }
@@ -631,7 +647,7 @@ function scoreTextConstraints(rule: TextConstraintsRule, answerText: string): bo
 }
 
 function normalizeFieldName(value: string): string {
-  return value.trim().replace(/\s+/g, " ").toLocaleUpperCase();
+  return value.trim().replace(/\s+/g, " ").toUpperCase();
 }
 
 function parseStructuredFields(
@@ -829,7 +845,7 @@ function validateRule(value: unknown, path: string): asserts value is ScoringRul
     case "ordering":
       if (!Array.isArray(value.expected) || value.expected.length < 2 ||
         value.expected.some((item) => typeof item !== "string" || !item.trim()) ||
-        new Set((value.expected as string[]).map((item) => item.toLocaleLowerCase())).size !== value.expected.length) {
+        new Set((value.expected as string[]).map((item) => item.toLowerCase())).size !== value.expected.length) {
         throw new Error(`Invalid scoring configuration: ${path}.expected must contain unique non-empty strings.`);
       }
       if (!Number.isInteger(value.minimumMatches) || (value.minimumMatches as number) < 1 ||
@@ -902,10 +918,15 @@ function validateRule(value: unknown, path: string): asserts value is ScoringRul
   }
 }
 
+const VALIDATED_CONFIGS = new WeakSet<object>();
+
 export function parseScoringConfig(value: unknown): ScoringConfig {
   if (!isRecord(value) || typeof value.benchmarkVersion !== "string" || !Array.isArray(value.prompts)) {
     throw new Error("Invalid scoring configuration root.");
   }
+  // Skip revalidation (and its regex compilation) for configs this function
+  // has already accepted — scoreResponses re-parses per submission otherwise.
+  if (VALIDATED_CONFIGS.has(value)) return value as unknown as ScoringConfig;
   const promptIds = new Set<string>();
   for (const [promptIndex, promptValue] of value.prompts.entries()) {
     if (!isRecord(promptValue) || typeof promptValue.promptId !== "string" || !promptValue.promptId || !isRecord(promptValue.variants)) {
@@ -934,6 +955,7 @@ export function parseScoringConfig(value: unknown): ScoringConfig {
       });
     }
   }
+  VALIDATED_CONFIGS.add(value);
   return value as unknown as ScoringConfig;
 }
 
