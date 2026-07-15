@@ -6,7 +6,9 @@ current benchmark is `core-2.0`: 13 scored reasoning items plus two unscored
 metadata probes, with two surface variants and a randomized order per run.
 
 The app runs on Cloudflare Workers with D1. It intentionally has no account
-system and never stores a participant name or email address.
+system and does not ask participants for a name or email address. Participants
+are instructed not to include personal information in any field or pasted model
+response.
 
 ## Local development
 
@@ -21,6 +23,8 @@ Useful checks:
 
 ```bash
 pnpm test
+pnpm scoring:test-private
+pnpm scoring:verify-no-leaks
 pnpm lint
 pnpm exec tsc --noEmit
 pnpm build
@@ -67,11 +71,17 @@ The Worker expects these bindings:
 - `ASSETS`: built site assets
 - `TURNSTILE_SITE_KEY`: public Turnstile widget key
 - `TURNSTILE_SECRET_KEY`: private Turnstile verification key
-- `RATE_LIMIT_HMAC_SECRET`: at least 32 bytes, used to derive rotating daily IP
+- `RATE_LIMIT_HMAC_SECRET`: at least 32 bytes, used with separate HMAC domains
+  to sign six-hour benchmark-session assignments and derive rotating daily IP
   digests; raw IP addresses are never persisted
 
 Keep secrets in Cloudflare's secret store. Do not add them to tracked files or
 print them in logs.
+
+Prompt variant and order are issued by `POST /api/session`, not chosen by the
+browser. The client submits the signed contract in `X-Benchmark-Session`; the
+submission route verifies its signature, expiry, benchmark version, and exact
+assignment before abuse checks or scoring. A contract is accepted at most once.
 
 ## Release checklist
 
@@ -80,21 +90,36 @@ migrations, private scoring rules, or a public deployment are changed.
 The source-level `wrangler.jsonc` is input to the vinext build and is not a
 deployable Worker configuration. Every remote command must use the generated
 `dist/server/wrangler.json`, which contains the built entry point, assets, and D1
-binding.
+binding. Normal local builds intentionally use a non-deployable D1 placeholder;
+never use that placeholder for a remote migration or deployment.
 
-1. Verify and build the exact commit, then validate the generated deployment:
+1. Verify the exact commit locally:
 
    ```bash
    pnpm test
    pnpm lint
    pnpm exec tsc --noEmit
    pnpm build
+   ```
+
+2. Confirm the built client, tracked tree, and all reachable Git history contain
+   no expected answers:
+
+   ```bash
+   pnpm scoring:verify-no-leaks
+   ```
+3. After the production checkpoint, use a read-only Cloudflare account query to
+   confirm the intended production D1 database ID. Rebuild with that verified ID,
+   then validate the generated deployment configuration:
+
+   ```bash
+   env CLOUDFLARE_D1_DATABASE_ID="<verified database id>" pnpm build
+   pnpm release:verify-config
    env WRANGLER_LOG_PATH=.wrangler/wrangler.log pnpm exec wrangler deploy --config dist/server/wrangler.json --dry-run
    ```
 
-2. Confirm the built client and tracked tree contain no expected answers.
-3. After the production checkpoint, apply the migration and private seed through
-   the generated configuration:
+4. Apply the migration and private seed through that same verified generated
+   configuration:
 
    ```bash
    env WRANGLER_LOG_PATH=.wrangler/wrangler.log pnpm exec wrangler d1 execute DB --config dist/server/wrangler.json --remote --file drizzle/0001_tranquil_captain_marvel.sql
@@ -103,17 +128,17 @@ binding.
    env WRANGLER_LOG_PATH=.wrangler/wrangler.log pnpm exec wrangler d1 execute DB --config dist/server/wrangler.json --remote --command "SELECT COUNT(*) AS scoring_rows FROM benchmark_scoring_rules WHERE benchmark_version = 'core-2.0'"
    ```
 
-4. Configure `TURNSTILE_SITE_KEY`, `TURNSTILE_SECRET_KEY`, and
+5. Configure `TURNSTILE_SITE_KEY`, `TURNSTILE_SECRET_KEY`, and
    `RATE_LIMIT_HMAC_SECRET` in Cloudflare's secret store for this Worker.
-5. Deploy the verified build with the same generated configuration:
+6. Deploy the verified build with the same generated configuration:
 
    ```bash
    env WRANGLER_LOG_PATH=.wrangler/wrangler.log pnpm exec wrangler deploy --config dist/server/wrangler.json
    ```
 
-6. Complete one production submission, verify the stored row and derived
+7. Complete one production submission, verify the stored row and derived
    fields, then remove only that marked test submission.
-7. Verify the main site, `/embed`, and the aggregate-only `/api/stats` endpoint.
+8. Verify the main site, `/embed`, and the aggregate-only `/api/stats` endpoint.
 
 ## Website integration
 
