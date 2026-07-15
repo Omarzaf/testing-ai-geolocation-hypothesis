@@ -33,6 +33,8 @@ type FormError = "" | "location" | "fields" | "protocol" | "consent" | "session"
 type CopyStatus = "" | "copied" | "blocked";
 type BinaryChoice = "" | "0" | "1";
 type ResultsVersion = "core-2.0" | "core-1.0";
+type TokenReportStatus = "reported" | "unknown" | "refused" | "absent" | "invalid";
+type ReasoningTokenReportStatusCounts = Record<TokenReportStatus, number>;
 
 type ResponseDraft = {
   responseText: string;
@@ -49,12 +51,15 @@ type ResultGroup = {
   planLabel: string;
   sampleSize: number;
   averageScore: number;
+  crossRegionEligible: boolean;
 };
 
 type ResultsPayload = {
   overview: { submissions: number; cities: number; models: number };
   groups: ResultGroup[];
   privacyThreshold: number;
+  crossRegionThreshold: number;
+  reasoningTokenReportStatusCounts: ReasoningTokenReportStatusCounts | null;
   benchmarkVersion: ResultsVersion;
   error?: string;
 };
@@ -71,6 +76,7 @@ type SessionPayload = {
 const FEEDBACK_REASONS = ["", "unclear", "answer disputed", "technical issue", "too long"] as const;
 const ACCESS_VALUES: readonly AccessType[] = ["Free", "Paid", "Not sure"];
 const RESULTS_VERSIONS: readonly ResultsVersion[] = ["core-2.0", "core-1.0"];
+const TOKEN_REPORT_STATUS_KEYS: readonly TokenReportStatus[] = ["reported", "unknown", "refused", "absent", "invalid"];
 function createResponseDrafts(): Record<string, ResponseDraft> {
   return Object.fromEntries(
     BENCHMARK_PROMPTS.map((prompt) => [
@@ -86,6 +92,10 @@ function binaryFlag(value: Exclude<BinaryChoice, "">): 0 | 1 {
 
 function responseIsComplete(draft: ResponseDraft | undefined): boolean {
   return Boolean(draft?.responseText.trim() && draft.responseSecondsBucket);
+}
+
+function thresholdLabel(template: string, threshold: number): string {
+  return template.replace("{threshold}", String(threshold));
 }
 
 export function BenchmarkApp() {
@@ -162,6 +172,12 @@ export function BenchmarkApp() {
   const selectedCountryLabel = countryOptions.find((option) => option.code === country)?.label ?? country;
   const testedLanguageLabel = uiLanguage ? copy.setup.optionLabels.uiLanguage[uiLanguage] : "—";
   const platformLabel = platform ? copy.setup.optionLabels.platform[platform] : "—";
+  const tokenReportStatuses = results?.benchmarkVersion === BENCHMARK_VERSION
+    ? results.reasoningTokenReportStatusCounts
+    : null;
+  const tokenReportTotal = tokenReportStatuses
+    ? TOKEN_REPORT_STATUS_KEYS.reduce((sum, status) => sum + tokenReportStatuses[status], 0)
+    : 0;
 
   function accessLabel(value: string): string {
     return ACCESS_VALUES.includes(value as AccessType)
@@ -301,6 +317,7 @@ export function BenchmarkApp() {
     if (!responseIsComplete(currentDraft)) return;
     setCopyStatus("");
     if (promptIndex === BENCHMARK_PROMPTS.length - 1) {
+      setCompletedInOneSitting("");
       setStage("review");
       return;
     }
@@ -745,6 +762,25 @@ export function BenchmarkApp() {
               </select>
             </div>
           </div>
+          <section className="completion-confirmation" aria-labelledby="actual-completion-title">
+            <div>
+              <h2 id="actual-completion-title">{copy.review.completionTitle}</h2>
+              <p id="actual-completion-note">{copy.review.completionNote}</p>
+            </div>
+            <label htmlFor="actual-one-sitting">
+              <span>{copy.review.completionQuestion}</span>
+              <select
+                id="actual-one-sitting"
+                value={completedInOneSitting}
+                onChange={(event) => setCompletedInOneSitting(event.target.value as BinaryChoice)}
+                aria-describedby="actual-completion-note"
+                required
+              >
+                <option value="">{copy.setup.requiredChoice}</option>
+                {(["1", "0"] as const).map((value) => <option value={value} key={value}>{copy.setup.optionLabels.binary[value]}</option>)}
+              </select>
+            </label>
+          </section>
           <div className="turnstile-card">
             <div><b>{copy.review.turnstileTitle}</b><p>{copy.review.turnstilePrompt}</p></div>
             <TurnstileWidget language={language} onToken={setTurnstileToken} labels={{ loading: copy.review.turnstileLoading, unavailable: copy.review.turnstileUnavailable }} />
@@ -754,7 +790,7 @@ export function BenchmarkApp() {
           </div>
           <div className="submit-card">
             <div><b>{copy.review.anonymous}</b><p>{copy.review.privateNote}</p></div>
-            <button className="button button-primary" type="button" onClick={submitBenchmark} disabled={submitting || completedCount !== BENCHMARK_PROMPTS.length || !turnstileToken}>{submitting ? copy.review.submitting : `${copy.review.submit} ${forwardArrow}`}</button>
+            <button className="button button-primary" type="button" onClick={submitBenchmark} disabled={submitting || completedCount !== BENCHMARK_PROMPTS.length || !completedInOneSitting || !turnstileToken}>{submitting ? copy.review.submitting : `${copy.review.submit} ${forwardArrow}`}</button>
           </div>
           {submitError && <p className="error-message centered" role="alert">{copy.errors.save}</p>}
         </section>
@@ -805,6 +841,27 @@ export function BenchmarkApp() {
                 <div><b dir="ltr">n ≥ {results.privacyThreshold}</b><span>{copy.results.stats[3]}</span></div>
               </div>
               {resultsVersion === "core-2.0" && <p className="score-basis">{copy.results.scoreBasis}</p>}
+              {results.benchmarkVersion === BENCHMARK_VERSION && tokenReportStatuses && tokenReportTotal > 0 && (
+                <section
+                  className="token-status-summary"
+                  aria-labelledby="token-status-title"
+                  aria-describedby="token-status-note"
+                >
+                  <div>
+                    <span className="card-kicker">{copy.results.tokenStatusesEyebrow}</span>
+                    <h2 id="token-status-title">{copy.results.tokenStatusesTitle}</h2>
+                    <p id="token-status-note">{copy.results.tokenStatusesNote}</p>
+                  </div>
+                  <dl aria-label={copy.results.tokenStatusesAria}>
+                    {TOKEN_REPORT_STATUS_KEYS.map((status) => (
+                      <div className={`token-status-item token-status-item-${status}`} key={status}>
+                        <dt>{copy.results.tokenStatuses[status]}</dt>
+                        <dd dir="ltr">{tokenReportStatuses[status]}</dd>
+                      </div>
+                    ))}
+                  </dl>
+                </section>
+              )}
               {results.groups.length === 0 ? (
                 <div className="empty-results">
                   <span aria-hidden="true">···</span>
@@ -821,7 +878,16 @@ export function BenchmarkApp() {
                         <td data-label={copy.results.headers[0]}><b dir="auto">{group.city}</b><small dir="ltr">{group.country ?? "—"}</small></td>
                         <td data-label={copy.results.headers[1]}><bdi dir="ltr">{group.model}</bdi><small dir="ltr">{group.provider}</small></td>
                         <td data-label={copy.results.headers[2]}>{accessLabel(group.accessType)}<small dir="auto">{group.planLabel}</small></td>
-                        <td data-label={copy.results.headers[3]}><bdi dir="ltr">{group.sampleSize}</bdi>{group.sampleSize < 30 && <small>{copy.results.exploratory}</small>}</td>
+                        <td data-label={copy.results.headers[3]}>
+                          <bdi dir="ltr">{group.sampleSize}</bdi>
+                          {group.sampleSize < 30 && <small>{copy.results.exploratory}</small>}
+                          <small className={`cross-region-status ${group.crossRegionEligible ? "cross-region-status-ready" : "cross-region-status-limited"}`}>
+                            {thresholdLabel(
+                              group.crossRegionEligible ? copy.results.crossRegionEligible : copy.results.crossRegionLimited,
+                              results.crossRegionThreshold,
+                            )}
+                          </small>
+                        </td>
                         <td data-label={copy.results.headers[4]}>
                           <div className="score-cell"><span><i style={{ width: `${group.averageScore}%` }} /></span><b dir="ltr">{group.averageScore}%</b></div>
                           <small>{copy.results.descriptive}</small>

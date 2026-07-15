@@ -27,13 +27,13 @@ Verdict: **LOCAL PASS; D1 ACCEPTANCE PENDING**
 
 Verdict: **LOCAL PASS; DEPLOYED ROUND-TRIP PENDING**
 
-- The implementation follows the explicit item list in the spec: 15 prompts per run, comprising 13 scored items and two unscored probes. The spec's earlier “14 items / 12 scored” shorthand conflicts with its own A1–A3, B1–B6, C1–C4, M1–M2 enumeration.
-- Every prompt has an answer-free A and B surface variant; the server issues the variant and order in a signed, six-hour session contract.
+- The implementation and corrected private spec follow the explicit item list: 15 prompts per run, comprising 13 scored items and two unscored probes. The earlier “14 items / 12 scored” shorthand was reconciled with the A1–A3, B1–B6, C1–C4, M1–M2 enumeration.
+- Every prompt has an answer-free A and B surface variant; the server issues the variant and order in a signed, 72-hour session contract so a run that crosses days can still be stored and excluded honestly.
 - Submission rejects a missing, expired, tampered, wrong-version, wrong-order, or caller-selected assignment before Turnstile, rate-limit, scoring, or persistence work.
 - The signed contract ID is hashed into the existing unique `answer_hash` column, making one contract single-use while allowing identical outputs from separately issued sessions.
 - This deliberately repurposes the legacy content-hash field for core-2. Cross-session exact-output duplicates are no longer rejected; duplicate-risk mitigation instead uses single-use contracts, the five-per-day connection limit, and repetition flags. Preserving both independent constraints would require an additional unique session-contract column and owner-approved schema migration.
 - The public scorer suite covers generic rule semantics without publishing expected benchmark answers. The ignored private matrix passes 209 explicit cases across all 30 prompt variants, plus automatic retraction mutations of 58 positive scored responses. Coverage includes same-line and later-line retractions, question-and-answer rejections, negated arithmetic work and intermediate sequences, A/B-equivalent probability work, correct paraphrases, the documented C3 method-or-zero rubric, competing and retracted denominator claims, contradiction synonyms, contradictory set and ordering relations, spelled-out fabricated totals, strict field structure, and documented traps.
-- Both variants have a 26-point scored maximum. A separate scorer audit re-derived and attacked the rubric; the final terminal-answer repair passed all eight targeted A1/B1/B3/C1 A/B retraction checks.
+- Both variants have a 26-point scored maximum. Separate scorer audits re-derived and attacked the rubric; the final private suite passed 209 explicit cases, 58 generated retractions, and all 14 previously blocking semantic probes across 30 variants.
 
 ## Phase 3 — Token-reporting trailer
 
@@ -42,6 +42,7 @@ Verdict: **LOCAL PASS**
 - Every copied prompt includes the required reasoning-token trailer.
 - Server-side extraction distinguishes numeric self-report, `unknown`, refusal, malformed text, and absence.
 - Visible response estimates are stored separately. Participant copy consistently labels model-reported reasoning tokens as unverified self-reports rather than measurements.
+- The core-2 results surface reports only privacy-gated aggregate counts for reported, unknown, refused, absent, and malformed states; raw self-reports and per-response records are never returned.
 
 ## Phase 4 — Participant experience
 
@@ -49,6 +50,8 @@ Verdict: **SOURCE AND AUTOMATED TEST PASS; BROWSER WALKTHROUGH PENDING**
 
 - The contribution flow, research-purpose explanation, consent summary, methodology, participant protocol, and results interpretation are present in English and Urdu.
 - Setup records product and protocol metadata. Runs that violate the primary protocol are stored but excluded or flagged rather than silently discarded.
+- The review stage clears the prospective one-sitting answer and requires a fresh English/Urdu confirmation of what actually happened before submission. A `No` answer remains storable but ineligible for primary analysis.
+- Every visible results group states whether it is below or meets the `n ≥ 10` count threshold; the copy makes no causal model-routing claim.
 - The UI uses the requested pastel visual system and sketch-style project images.
 - The privacy copy says that personal information is not requested and instructs participants not to paste it; it no longer makes the false absolute claim that free-text fields can never contain personal information.
 - A first-time-user walkthrough in both languages, including RTL, keyboard, responsive, and error-state checks, remains pending because browser/local-server access needs explicit sandbox approval.
@@ -101,3 +104,4 @@ No production resource, remote database, secret, public deployment, or GitHub br
 - Architecture reviewer: identified caller-controlled assignment as an integrity flaw and specified the signed server-issued session contract.
 - Final moderator: found one public synthetic-answer leak and five contradiction/retraction scorer families; the public fixture was replaced and all identified families received explicit plus mutation-based regression coverage.
 - Coordinator: repaired the findings, reran local gates, and preserved all external acceptance items as pending.
+- Completion auditors: found the item-count wording conflict, an unexposed token-status distinction, an unenforced comparison label, and a multi-day reporting gap; the local implementation and private spec were corrected before final verification.

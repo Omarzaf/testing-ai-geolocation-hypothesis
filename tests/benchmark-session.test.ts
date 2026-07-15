@@ -32,7 +32,7 @@ test("issues a deterministic signed assignment containing the exact prompt set",
   assert.equal(first.sessionVariant, "B");
   assert.equal(first.promptOrder.length, 15);
   assert.deepEqual(new Set(first.promptOrder), new Set(PROMPT_IDS));
-  assert.equal(first.expiresAt - first.issuedAt, 6 * 60 * 60);
+  assert.equal(first.expiresAt - first.issuedAt, 72 * 60 * 60);
 
   const verified = await verifyBenchmarkSession({
     token: first.sessionToken,
@@ -50,6 +50,24 @@ test("issues a deterministic signed assignment containing the exact prompt set",
     issuedAt: first.issuedAt,
     expiresAt: first.expiresAt,
   });
+
+  const verifiedAfterFortyEightHours = await verifyBenchmarkSession({
+    token: first.sessionToken,
+    expectedBenchmarkVersion: "core-2.0",
+    expectedPromptIds: PROMPT_IDS,
+    secret: SECRET,
+    now: new Date(NOW.getTime() + 48 * 60 * 60 * 1_000),
+  });
+  assert.equal(verifiedAfterFortyEightHours.contractId, first.contractId);
+
+  const verifiedOneSecondBeforeExpiry = await verifyBenchmarkSession({
+    token: first.sessionToken,
+    expectedBenchmarkVersion: "core-2.0",
+    expectedPromptIds: PROMPT_IDS,
+    secret: SECRET,
+    now: new Date(NOW.getTime() + (72 * 60 * 60 - 1) * 1_000),
+  });
+  assert.equal(verifiedOneSecondBeforeExpiry.contractId, first.contractId);
 });
 
 test("signature, payload, secret, expiry, version, and prompt tampering fail closed", async () => {
@@ -86,7 +104,7 @@ test("signature, payload, secret, expiry, version, and prompt tampering fail clo
       expectedBenchmarkVersion: "core-2.0",
       expectedPromptIds: PROMPT_IDS,
       secret: SECRET,
-      now: new Date(NOW.getTime() + (6 * 60 * 60 + 1) * 1_000),
+      now: new Date(NOW.getTime() + 72 * 60 * 60 * 1_000),
     }),
     (error: unknown) => error instanceof BenchmarkSessionError && error.code === "SESSION_EXPIRED",
   );

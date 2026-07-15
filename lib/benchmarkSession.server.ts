@@ -1,7 +1,7 @@
 import type { BenchmarkVariant } from "./benchmark.ts";
 
 const CONTRACT_VERSION = 1;
-const CONTRACT_TTL_SECONDS = 6 * 60 * 60;
+const CONTRACT_TTL_SECONDS = 72 * 60 * 60;
 const CLOCK_SKEW_SECONDS = 60;
 const SIGNING_DOMAIN = "RAB_BENCHMARK_SESSION_V1\0";
 
@@ -173,7 +173,7 @@ function randomizedAssignment(
   return { sessionVariant, promptOrder };
 }
 
-/** Issues one six-hour, server-randomized, tamper-evident benchmark assignment. */
+/** Issues one 72-hour, server-randomized, tamper-evident benchmark assignment. */
 export async function issueBenchmarkSession({
   benchmarkVersion,
   promptIds,

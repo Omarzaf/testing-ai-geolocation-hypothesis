@@ -17,6 +17,123 @@ const RATE_LIMIT_PER_DAY = 5;
 const CURRENT_PROMPT_IDS = BENCHMARK_PROMPTS.map(({ id }) => id);
 const AVAILABLE_VERSIONS = [BENCHMARK_VERSION, "core-1.0"] as const;
 
+const REASONING_TOKEN_REPORT_STATUSES = [
+  "reported",
+  "unknown",
+  "refused",
+  "absent",
+  "invalid",
+] as const;
+
+type ReasoningTokenReportStatus = (typeof REASONING_TOKEN_REPORT_STATUSES)[number];
+
+export type ReasoningTokenReportStatusCounts = Record<ReasoningTokenReportStatus, number>;
+
+type ReasoningTokenStatusCountRow = {
+  status: unknown;
+  count: unknown;
+};
+
+type ResultGroupRow = {
+  city: unknown;
+  country: unknown;
+  provider: unknown;
+  model: unknown;
+  accessType: unknown;
+  planLabel: unknown;
+  sampleSize: unknown;
+  averageScore: unknown;
+};
+
+type ResultsOverviewRow = {
+  submissions?: unknown;
+  cities?: unknown;
+  models?: unknown;
+} | null;
+
+function nonNegativeInteger(value: unknown): number {
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : 0;
+}
+
+/** Maps legacy or unexpected stored token-report states into the fixed public vocabulary. */
+export function normalizeReasoningTokenReportStatus(value: unknown): ReasoningTokenReportStatus {
+  if (value === null || value === undefined) return "absent";
+  if (typeof value !== "string") return "invalid";
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "missing" || normalized === "") return "absent";
+  if (normalized === "refusal") return "refused";
+  if (normalized === "malformed") return "invalid";
+  return REASONING_TOKEN_REPORT_STATUSES.includes(normalized as ReasoningTokenReportStatus)
+    ? normalized as ReasoningTokenReportStatus
+    : "invalid";
+}
+
+/** Produces only fixed aggregate counters; extra database-row fields are intentionally ignored. */
+export function aggregateReasoningTokenReportStatuses(
+  rows: readonly ReasoningTokenStatusCountRow[],
+): ReasoningTokenReportStatusCounts {
+  const counts: ReasoningTokenReportStatusCounts = {
+    reported: 0,
+    unknown: 0,
+    refused: 0,
+    absent: 0,
+    invalid: 0,
+  };
+  for (const row of rows) {
+    counts[normalizeReasoningTokenReportStatus(row.status)] += nonNegativeInteger(row.count);
+  }
+  return counts;
+}
+
+export function isCrossRegionEligible(sampleSize: unknown): boolean {
+  return nonNegativeInteger(sampleSize) >= CROSS_REGION_THRESHOLD;
+}
+
+export function buildPublicResultsPayload({
+  requestedVersion,
+  overview,
+  groups,
+  tokenStatusRows,
+}: {
+  requestedVersion: (typeof AVAILABLE_VERSIONS)[number];
+  overview: ResultsOverviewRow;
+  groups: readonly ResultGroupRow[];
+  tokenStatusRows: readonly ReasoningTokenStatusCountRow[];
+}) {
+  const submissions = nonNegativeInteger(overview?.submissions);
+  return {
+    overview: {
+      submissions,
+      cities: nonNegativeInteger(overview?.cities),
+      models: nonNegativeInteger(overview?.models),
+    },
+    groups: groups.map((group) => {
+      const sampleSize = nonNegativeInteger(group.sampleSize);
+      return {
+        city: String(group.city ?? ""),
+        country: String(group.country ?? ""),
+        provider: String(group.provider ?? ""),
+        model: String(group.model ?? ""),
+        accessType: String(group.accessType ?? ""),
+        planLabel: String(group.planLabel ?? ""),
+        sampleSize,
+        averageScore: Number.isFinite(Number(group.averageScore)) ? Number(group.averageScore) : 0,
+        crossRegionEligible: isCrossRegionEligible(sampleSize),
+      };
+    }),
+    privacyThreshold: PRIVACY_THRESHOLD,
+    crossRegionThreshold: CROSS_REGION_THRESHOLD,
+    benchmarkVersion: requestedVersion,
+    availableVersions: [...AVAILABLE_VERSIONS],
+    scoredItemCount: requestedVersion === BENCHMARK_VERSION ? 13 : 10,
+    reasoningTokenReportStatusCounts:
+      requestedVersion === BENCHMARK_VERSION && submissions >= PRIVACY_THRESHOLD
+        ? aggregateReasoningTokenReportStatuses(tokenStatusRows)
+        : null,
+  };
+}
+
 class RequestBodyError extends Error {
   readonly status: number;
 
@@ -335,6 +452,7 @@ export async function GET(request: Request) {
     if (!AVAILABLE_VERSIONS.includes(requestedVersion as (typeof AVAILABLE_VERSIONS)[number])) {
       return Response.json({ error: "Unknown benchmark version." }, { status: 400 });
     }
+    const selectedVersion = requestedVersion as (typeof AVAILABLE_VERSIONS)[number];
     const { env } = await import("cloudflare:workers");
     const database = env.DB;
     const [overview, groups] = await Promise.all([
@@ -347,7 +465,7 @@ export async function GET(request: Request) {
            FROM submissions
            WHERE benchmark_version = ? AND quality_status = 'eligible'`,
         )
-        .bind(requestedVersion)
+        .bind(selectedVersion)
         .first(),
       database
         .prepare(
@@ -367,23 +485,37 @@ export async function GET(request: Request) {
            ORDER BY sampleSize DESC, averageScore DESC
            LIMIT 100`,
         )
-        .bind(requestedVersion)
-        .all(),
+        .bind(selectedVersion)
+        .all<ResultGroupRow>(),
     ]);
 
-    return Response.json({
-      overview: {
-        submissions: Number(overview?.submissions ?? 0),
-        cities: Number(overview?.cities ?? 0),
-        models: Number(overview?.models ?? 0),
-      },
+    let tokenStatusRows: ReasoningTokenStatusCountRow[] = [];
+    if (selectedVersion === BENCHMARK_VERSION &&
+      nonNegativeInteger(overview?.submissions) >= PRIVACY_THRESHOLD) {
+      const tokenStatuses = await database
+        .prepare(
+          `WITH stored_statuses AS (
+             SELECT LOWER(TRIM(COALESCE(r.reasoning_token_status, ''))) AS status
+             FROM responses AS r
+             INNER JOIN submissions AS s ON s.id = r.submission_id
+             WHERE s.benchmark_version = ? AND s.quality_status = 'eligible'
+           )
+           SELECT status, COUNT(*) AS count
+           FROM stored_statuses
+           GROUP BY status
+           ORDER BY status`,
+        )
+        .bind(BENCHMARK_VERSION)
+        .all<ReasoningTokenStatusCountRow>();
+      tokenStatusRows = tokenStatuses.results;
+    }
+
+    return Response.json(buildPublicResultsPayload({
+      requestedVersion: selectedVersion,
+      overview,
       groups: groups.results,
-      privacyThreshold: PRIVACY_THRESHOLD,
-      crossRegionThreshold: CROSS_REGION_THRESHOLD,
-      benchmarkVersion: requestedVersion,
-      availableVersions: [...AVAILABLE_VERSIONS],
-      scoredItemCount: requestedVersion === BENCHMARK_VERSION ? 13 : 10,
-    });
+      tokenStatusRows,
+    }));
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unexpected error";
     return Response.json(

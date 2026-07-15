@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { readFile, readdir } from "node:fs/promises";
 import test from "node:test";
 
 async function loadWorker() {
@@ -24,6 +24,13 @@ async function render() {
       passThroughOnException() {},
     },
   );
+}
+
+async function loadSsrBenchmarkBundle() {
+  const assetDirectory = new URL("../dist/server/ssr/assets/", import.meta.url);
+  const assetName = (await readdir(assetDirectory)).find((name) => /^BenchmarkApp-.+\.js$/.test(name));
+  assert.ok(assetName, "Expected a compiled BenchmarkApp SSR asset.");
+  return readFile(new URL(assetName, assetDirectory), "utf8");
 }
 
 test("server-renders the core-2 public benchmark and sketch system", async () => {
@@ -124,6 +131,52 @@ test("gates submission on Turnstile and requests explicitly versioned results", 
   assert.match(widget, /\/api\/config/);
   assert.match(widget, /challenges\.cloudflare\.com\/turnstile/);
   assert.match(widget, /expired-callback/);
+});
+
+test("reconfirms actual one-sitting completion before submission in both languages", async () => {
+  const [app, copy] = await Promise.all([
+    readFile(new URL("../app/BenchmarkApp.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../lib/uiCopy.ts", import.meta.url), "utf8"),
+  ]);
+
+  assert.match(app, /id="actual-one-sitting"[\s\S]{0,180}value=\{completedInOneSitting\}/);
+  assert.match(app, /id="actual-one-sitting"[\s\S]{0,360}setCompletedInOneSitting/);
+  assert.match(app, /promptIndex === BENCHMARK_PROMPTS\.length - 1[\s\S]{0,120}setCompletedInOneSitting\(""\)/);
+  assert.match(app, /disabled=\{submitting \|\| completedCount !== BENCHMARK_PROMPTS\.length \|\| !completedInOneSitting \|\| !turnstileToken\}/);
+  assert.match(app, /aria-describedby="actual-completion-note"/);
+  assert.match(app, /aria-describedby="actual-completion-note"[\s\S]{0,40}required/);
+  assert.match(copy, /Confirm what actually happened/);
+  assert.match(copy, /Selecting No stores the run but excludes it from the primary analysis/);
+  assert.match(copy, /جو حقیقتاً ہوا اس کی تصدیق کریں/);
+  assert.match(copy, /’نہیں‘ منتخب کرنے پر ٹیسٹ محفوظ ہوگا/);
+});
+
+test("builds accessible aggregate token-status and cross-region threshold surfaces", async () => {
+  const [app, copy, css, ssrBundle] = await Promise.all([
+    readFile(new URL("../app/BenchmarkApp.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../lib/uiCopy.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
+    loadSsrBenchmarkBundle(),
+  ]);
+
+  assert.match(app, /crossRegionEligible: boolean/);
+  assert.match(app, /crossRegionThreshold: number/);
+  assert.match(app, /reasoningTokenReportStatusCounts: ReasoningTokenReportStatusCounts \| null/);
+  assert.match(app, /results\.benchmarkVersion === BENCHMARK_VERSION && tokenReportStatuses && tokenReportTotal > 0/);
+  assert.match(app, /aria-labelledby="token-status-title"/);
+  assert.match(app, /<dl aria-label=\{copy\.results\.tokenStatusesAria\}>/);
+  assert.match(app, /group\.crossRegionEligible \? copy\.results\.crossRegionEligible : copy\.results\.crossRegionLimited/);
+  assert.match(copy, /Unverified model self-reports/);
+  assert.match(copy, /They are not measured token usage and do not establish why responses differ/);
+  assert.match(copy, /ماڈل کے غیر مصدقہ خود بیان/);
+  assert.match(copy, /علاقائی دعووں میں استعمال نہیں/);
+  assert.match(css, /\.token-status-item-refused[^}]+background: #fde8e3/);
+  assert.match(css, /\.token-status-item-absent[^}]+border-style: dashed/);
+  assert.match(css, /\.cross-region-status-ready/);
+  assert.match(css, /\.cross-region-status-limited/);
+  assert.match(ssrBundle, /token-status-summary/);
+  assert.match(ssrBundle, /Unverified model self-reports/);
+  assert.match(ssrBundle, /ماڈل کے غیر مصدقہ خود بیان/);
 });
 
 test("publishes the complete bilingual participant protocol without translating prompts", async () => {

@@ -72,7 +72,7 @@ The Worker expects these bindings:
 - `TURNSTILE_SITE_KEY`: public Turnstile widget key
 - `TURNSTILE_SECRET_KEY`: private Turnstile verification key
 - `RATE_LIMIT_HMAC_SECRET`: at least 32 bytes, used with separate HMAC domains
-  to sign six-hour benchmark-session assignments and derive rotating daily IP
+  to sign 72-hour benchmark-session assignments and derive rotating daily IP
   digests; raw IP addresses are never persisted
 
 Keep secrets in Cloudflare's secret store. Do not add them to tracked files or
@@ -150,10 +150,12 @@ never use that placeholder for a remote migration or deployment.
 ## Privacy and analysis rules
 
 - Results groups remain hidden until at least five eligible submissions exist.
-- Cross-region claims require at least ten submissions per comparison cell.
+- Each visible results group is explicitly marked as below or meeting the ten-submission threshold required for cross-region claims.
 - Non-English tested-product UI, VPN/unknown VPN state, regeneration,
   memory/custom instructions on or unknown, translated prompts, and
   multi-sitting runs are stored but excluded from primary analysis.
 - Model-reported reasoning-token numbers are explicitly unverified self-reports;
-  visible response length is estimated independently.
+  visible response length is estimated independently. Aggregate results keep
+  reported, unknown, refused, absent, and malformed statuses distinct and remain
+  hidden until the five-submission privacy threshold is met.
 - Raw responses are never returned by the public results or stats endpoints.
