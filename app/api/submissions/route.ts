@@ -1,5 +1,11 @@
 import { BENCHMARK_PROMPTS, BENCHMARK_VERSION } from "../../../lib/benchmark.ts";
 import { reserveDailySubmission, verifyTurnstileToken } from "../../../lib/antiAbuse.server.ts";
+import {
+  BenchmarkSessionError,
+  assertBenchmarkAssignment,
+  type BenchmarkSessionClaims,
+  verifyBenchmarkSession,
+} from "../../../lib/benchmarkSession.server.ts";
 import { loadScoringConfig } from "../../../lib/scoringConfig.server.ts";
 import { scoreResponses } from "../../../lib/scoring.ts";
 import { validateSubmissionPayload, type ValidatedSubmission } from "../../../lib/submission.ts";
@@ -119,6 +125,26 @@ export async function POST(request: Request) {
         { status: 503 },
       );
     }
+    const sessionToken = request.headers.get("x-benchmark-session")?.trim() ?? "";
+    let benchmarkSession: BenchmarkSessionClaims;
+    try {
+      benchmarkSession = await verifyBenchmarkSession({
+        token: sessionToken,
+        expectedBenchmarkVersion: BENCHMARK_VERSION,
+        expectedPromptIds: CURRENT_PROMPT_IDS,
+        secret: rateLimitSecret,
+      });
+      assertBenchmarkAssignment(benchmarkSession, payload);
+    } catch (error) {
+      const assignmentMismatch = error instanceof BenchmarkSessionError &&
+        error.code === "SESSION_ASSIGNMENT_MISMATCH";
+      return Response.json(
+        { error: assignmentMismatch
+          ? "The submitted assignment does not match this benchmark session."
+          : "A valid benchmark session is required. Start a new run and try again." },
+        { status: assignmentMismatch ? 400 : 401 },
+      );
+    }
     let turnstile;
     try {
       turnstile = await verifyTurnstileToken({
@@ -145,12 +171,39 @@ export async function POST(request: Request) {
       );
     }
 
+    const database = env.DB;
+    // The legacy answer_hash unique index now enforces one accepted submission
+    // per signed contract while still allowing identical model outputs from
+    // independently issued participant sessions.
+    const answerHash = await hashSubmission(["benchmark-session", benchmarkSession.contractId]);
+    const existingSession = await database
+      .prepare("SELECT 1 AS found FROM submissions WHERE answer_hash = ? LIMIT 1")
+      .bind(answerHash)
+      .first<{ found: number }>();
+    if (existingSession) {
+      return Response.json({ error: "This benchmark session has already been contributed." }, { status: 409 });
+    }
+
+    const scoringConfig = await loadScoringConfig(database, BENCHMARK_VERSION, CURRENT_PROMPT_IDS);
+    const scores = scoreResponses(
+      payload.responses.map(({ promptId, responseText }) => ({
+        promptId,
+        responseText,
+        variant: benchmarkSession.sessionVariant,
+      })),
+      scoringConfig,
+    );
+    const scoreByPrompt = new Map(scores.map((score) => [score.promptId, score]));
+    const overallScore = scores.reduce((sum, item) => sum + item.score, 0);
+    const maxScore = scores.reduce((sum, item) => sum + item.maxScore, 0);
+    const submissionId = crypto.randomUUID();
+    const status = assessQualityStatus(payload, scores);
     const clientIp = request.headers.get("cf-connecting-ip")?.trim() || localFallbackIp(request);
     if (!clientIp) {
       return Response.json({ error: "Abuse protection could not verify this connection." }, { status: 503 });
     }
     const rateLimit = await reserveDailySubmission({
-      database: env.DB,
+      database,
       ipAddress: clientIp,
       hmacSecret: rateLimitSecret,
       limit: RATE_LIMIT_PER_DAY,
@@ -162,35 +215,6 @@ export async function POST(request: Request) {
       );
     }
 
-    const scoringConfig = await loadScoringConfig(env.DB, BENCHMARK_VERSION, CURRENT_PROMPT_IDS);
-    const scores = scoreResponses(
-      payload.responses.map(({ promptId, responseText }) => ({
-        promptId,
-        responseText,
-        variant: payload.sessionVariant,
-      })),
-      scoringConfig,
-    );
-    const scoreByPrompt = new Map(scores.map((score) => [score.promptId, score]));
-    const overallScore = scores.reduce((sum, item) => sum + item.score, 0);
-    const maxScore = scores.reduce((sum, item) => sum + item.maxScore, 0);
-    const submissionId = crypto.randomUUID();
-    const status = assessQualityStatus(payload, scores);
-    const answerHash = await hashSubmission([
-      payload.benchmarkVersion,
-      payload.sessionVariant,
-      payload.country,
-      payload.city.normalize("NFKC").toLocaleLowerCase(),
-      payload.provider,
-      payload.model,
-      payload.accessType,
-      payload.planLabel,
-      JSON.stringify(payload.promptOrder),
-      ...payload.responses.map(({ promptId, responseText, regenerated, responseSecondsBucket }) =>
-        `${promptId}:${responseText.trim()}:${regenerated}:${responseSecondsBucket}`),
-    ]);
-
-    const database = env.DB;
     const statements = [
       database
         .prepare(
@@ -217,8 +241,8 @@ export async function POST(request: Request) {
           payload.customInstructions,
           payload.promptsTranslated,
           payload.completedInOneSitting,
-          payload.sessionVariant,
-          JSON.stringify(payload.promptOrder),
+          benchmarkSession.sessionVariant,
+          JSON.stringify(benchmarkSession.promptOrder),
           payload.clientTimezone,
           payload.benchmarkVersion,
           answerHash,
@@ -288,8 +312,8 @@ export async function POST(request: Request) {
       return Response.json({ error: error.message }, { status: error.status });
     }
     const message = error instanceof Error ? error.message : "Unexpected error";
-    if (message.includes("UNIQUE constraint failed") || message.includes("answer_hash")) {
-      return Response.json({ error: "This exact benchmark run has already been contributed." }, { status: 409 });
+    if (message.includes("UNIQUE constraint failed") && message.includes("submissions.answer_hash")) {
+      return Response.json({ error: "This benchmark session has already been contributed." }, { status: 409 });
     }
     if (message.includes("Private scoring") || message.includes("scoring rules")) {
       return Response.json({ error: "The private scorer is not initialized yet." }, { status: 503 });

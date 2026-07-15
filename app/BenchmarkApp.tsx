@@ -9,7 +9,6 @@ import {
   MODEL_CATALOG,
   getBenchmarkPrompt,
   renderPromptForCopy,
-  shufflePromptOrder,
   type BenchmarkVariant,
 } from "../lib/benchmark";
 import {
@@ -30,7 +29,7 @@ import { PROMPT_UI, UI_COPY, type Language } from "../lib/uiCopy";
 import { TurnstileWidget } from "./TurnstileWidget";
 
 type Stage = "intro" | "setup" | "run" | "review" | "success" | "results" | "methodology";
-type FormError = "" | "location" | "fields" | "protocol" | "consent";
+type FormError = "" | "location" | "fields" | "protocol" | "consent" | "session";
 type CopyStatus = "" | "copied" | "blocked";
 type BinaryChoice = "" | "0" | "1";
 type ResultsVersion = "core-2.0" | "core-1.0";
@@ -57,6 +56,15 @@ type ResultsPayload = {
   groups: ResultGroup[];
   privacyThreshold: number;
   benchmarkVersion: ResultsVersion;
+  error?: string;
+};
+
+type SessionPayload = {
+  benchmarkVersion: string;
+  sessionVariant: BenchmarkVariant;
+  promptOrder: string[];
+  sessionToken: string;
+  expiresAt: number;
   error?: string;
 };
 
@@ -99,8 +107,12 @@ export function BenchmarkApp() {
   const [promptsTranslated, setPromptsTranslated] = useState<BinaryChoice>("");
   const [completedInOneSitting, setCompletedInOneSitting] = useState<BinaryChoice>("");
   const [consent, setConsent] = useState(false);
+  const [website, setWebsite] = useState("");
   const [sessionVariant, setSessionVariant] = useState<BenchmarkVariant | null>(null);
   const [promptOrder, setPromptOrder] = useState<string[]>([]);
+  const [sessionToken, setSessionToken] = useState("");
+  const [sessionExpiresAt, setSessionExpiresAt] = useState(0);
+  const [sessionLoading, setSessionLoading] = useState(false);
   const [clientTimezone, setClientTimezone] = useState("");
   const [promptIndex, setPromptIndex] = useState(0);
   const [responses, setResponses] = useState<Record<string, ResponseDraft>>(createResponseDrafts);
@@ -123,6 +135,7 @@ export function BenchmarkApp() {
   const [resultsError, setResultsError] = useState(false);
   const promptHeadingRef = useRef<HTMLHeadingElement>(null);
   const resultsRequestRef = useRef(0);
+  const sessionRequestRef = useRef(0);
 
   const copy = UI_COPY[language];
   const countryOptions = localizeCountryOptions(language);
@@ -187,6 +200,8 @@ export function BenchmarkApp() {
   }
 
   function navigate(nextStage: Stage) {
+    sessionRequestRef.current += 1;
+    setSessionLoading(false);
     setFormError("");
     setStage(nextStage);
     if (nextStage === "results") void loadResults(resultsVersion);
@@ -198,7 +213,7 @@ export function BenchmarkApp() {
     setCustomModel("");
   }
 
-  function beginBenchmark() {
+  async function beginBenchmark() {
     if (!country || city.trim().length < 2) {
       setFormError("location");
       return;
@@ -225,14 +240,39 @@ export function BenchmarkApp() {
       return;
     }
 
-    if (!sessionVariant || promptOrder.length !== BENCHMARK_PROMPTS.length) {
-      const entropy = new Uint32Array(2);
-      window.crypto.getRandomValues(entropy);
-      const variant: BenchmarkVariant = entropy[0] % 2 === 0 ? "A" : "B";
-      const seed = `${entropy[0]}-${entropy[1]}-${Date.now()}`;
-      setSessionVariant(variant);
-      setPromptOrder(shufflePromptOrder(BENCHMARK_PROMPTS.map((prompt) => prompt.id), seed));
-      setResponses(createResponseDrafts());
+    if (!sessionToken || sessionExpiresAt <= Math.floor(Date.now() / 1_000) + 60) {
+      const requestId = sessionRequestRef.current + 1;
+      sessionRequestRef.current = requestId;
+      setSessionLoading(true);
+      try {
+        const response = await fetch("/api/session", {
+          method: "POST",
+          headers: { accept: "application/json" },
+        });
+        const payload = (await response.json()) as Partial<SessionPayload>;
+        const requiredIds = new Set(BENCHMARK_PROMPTS.map((prompt) => prompt.id));
+        if (!response.ok || payload.benchmarkVersion !== BENCHMARK_VERSION ||
+          (payload.sessionVariant !== "A" && payload.sessionVariant !== "B") ||
+          !Array.isArray(payload.promptOrder) || payload.promptOrder.length !== requiredIds.size ||
+          new Set(payload.promptOrder).size !== requiredIds.size ||
+          payload.promptOrder.some((promptId) => typeof promptId !== "string" || !requiredIds.has(promptId)) ||
+          typeof payload.sessionToken !== "string" || !payload.sessionToken ||
+          typeof payload.expiresAt !== "number" || payload.expiresAt <= Math.floor(Date.now() / 1_000)) {
+          throw new Error(payload.error ?? "invalid-session");
+        }
+        if (sessionRequestRef.current !== requestId) return;
+        setSessionVariant(payload.sessionVariant);
+        setPromptOrder(payload.promptOrder);
+        setSessionToken(payload.sessionToken);
+        setSessionExpiresAt(payload.expiresAt);
+        setResponses(createResponseDrafts());
+      } catch {
+        if (sessionRequestRef.current !== requestId) return;
+        setFormError("session");
+        return;
+      } finally {
+        if (sessionRequestRef.current === requestId) setSessionLoading(false);
+      }
     }
 
     setClientTimezone(Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC");
@@ -289,6 +329,7 @@ export function BenchmarkApp() {
       !promptsTranslated ||
       !completedInOneSitting ||
       !sessionVariant ||
+      !sessionToken ||
       promptOrder.length !== BENCHMARK_PROMPTS.length ||
       !turnstileToken
     ) {
@@ -337,13 +378,16 @@ export function BenchmarkApp() {
           confusingPromptId,
           reason: feedbackReason,
         },
-        website: "",
+        website,
         turnstileToken,
       };
 
       const response = await fetch("/api/submissions", {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: {
+          "content-type": "application/json",
+          "X-Benchmark-Session": sessionToken,
+        },
         body: JSON.stringify(body),
       });
       const payload = (await response.json()) as {
@@ -367,9 +411,12 @@ export function BenchmarkApp() {
         eligibleForPrimaryAnalysis: payload.eligibleForPrimaryAnalysis,
       });
       setTurnstileToken("");
+      setWebsite("");
       setResponses(createResponseDrafts());
       setPromptOrder([]);
       setSessionVariant(null);
+      setSessionToken("");
+      setSessionExpiresAt(0);
       setPromptIndex(0);
       setResults(null);
       setStage("success");
@@ -442,7 +489,19 @@ export function BenchmarkApp() {
             <p>{copy.setup.lede}</p>
           </div>
           <div className="setup-layout">
-            <form className="setup-form" onSubmit={(event) => { event.preventDefault(); beginBenchmark(); }}>
+            <form className="setup-form" onSubmit={(event) => { event.preventDefault(); void beginBenchmark(); }}>
+              <div className="honeypot-field" aria-hidden="true">
+                <label htmlFor="website">Leave this field empty</label>
+                <input
+                  id="website"
+                  name="website"
+                  type="text"
+                  value={website}
+                  onChange={(event) => setWebsite(event.target.value)}
+                  autoComplete="off"
+                  tabIndex={-1}
+                />
+              </div>
               <fieldset className="form-section">
                 <legend><span>01</span> {copy.setup.where}</legend>
                 <div className="field-grid">
@@ -572,7 +631,7 @@ export function BenchmarkApp() {
                 </label>
               </div>
               {formError && <p className="error-message" role="alert">{copy.errors[formError]}</p>}
-              <button className="button button-primary full-button" type="submit">{copy.setup.continue} <span aria-hidden="true">{forwardArrow}</span></button>
+              <button className="button button-primary full-button" type="submit" disabled={sessionLoading}>{copy.setup.continue} <span aria-hidden="true">{forwardArrow}</span></button>
             </form>
 
             <aside className="privacy-card">

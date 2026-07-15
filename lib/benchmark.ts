@@ -53,8 +53,8 @@ export const BENCHMARK_PROMPTS: readonly BenchmarkPrompt[] = [
     title: "Category implication",
     scored: true,
     variants: {
-      A: `All A are B. No B are C. Can any A be C? Answer and give a one-sentence justification.`,
-      B: `All D are E. No E are F. Can any D be F? Answer and give a one-sentence justification.`,
+      A: `All A are B. No B are C. Can any A be C? Return exactly two lines:\nCONCLUSION: YES or NO\nJUSTIFICATION: [one sentence]`,
+      B: `All D are E. No E are F. Can any D be F? Return exactly two lines:\nCONCLUSION: YES or NO\nJUSTIFICATION: [one sentence]`,
     },
   }),
   definePrompt({
@@ -63,8 +63,8 @@ export const BENCHMARK_PROMPTS: readonly BenchmarkPrompt[] = [
     title: "Production and rework",
     scored: true,
     variants: {
-      A: `A machine makes 14 units per hour for 6 hours, then 9 units per hour for 4 hours. Twenty percent of all units are defective, and half of the defective units are successfully reworked into sellable units. The machine's rated capacity is 16 units per hour. How many units are sellable? Show your calculation.`,
-      B: `A machine makes 12 units per hour for 5 hours, then 10 units per hour for 3 hours. Ten percent of all units are defective, and two-thirds of the defective units are successfully reworked into sellable units. The machine's rated capacity is 15 units per hour. How many units are sellable? Show your calculation.`,
+      A: `A machine makes 14 units per hour for 6 hours, then 9 units per hour for 4 hours. Twenty percent of all units are defective, and half of the defective units are successfully reworked into sellable units. The machine's rated capacity is 16 units per hour. How many units are sellable? Show your calculation. End with exactly: FINAL ANSWER: [number]`,
+      B: `A machine makes 12 units per hour for 5 hours, then 10 units per hour for 3 hours. Ten percent of all units are defective, and two-thirds of the defective units are successfully reworked into sellable units. The machine's rated capacity is 15 units per hour. How many units are sellable? Show your calculation. End with exactly: FINAL ANSWER: [number]`,
     },
   }),
   definePrompt({
@@ -83,8 +83,8 @@ export const BENCHMARK_PROMPTS: readonly BenchmarkPrompt[] = [
     title: "Same-group probability",
     scored: true,
     variants: {
-      A: `Two cards are drawn from a standard 52-card deck without replacement. What is the probability that both cards have the same suit? Show your calculation.`,
-      B: `A box contains five red tokens and seven blue tokens. Two tokens are drawn without replacement. What is the probability that both tokens have the same color? Show your calculation.`,
+      A: `Two cards are drawn from a standard 52-card deck without replacement. What is the probability that both cards have the same suit? Show one unreduced intermediate probability before simplifying. End with exactly: FINAL ANSWER: [value]`,
+      B: `A box contains five red tokens and seven blue tokens. Two tokens are drawn without replacement. What is the probability that both tokens have the same color? Show one unreduced intermediate probability before simplifying. End with exactly: FINAL ANSWER: [value]`,
     },
   }),
   definePrompt({
@@ -93,8 +93,8 @@ export const BENCHMARK_PROMPTS: readonly BenchmarkPrompt[] = [
     title: "List aliasing",
     scored: true,
     variants: {
-      A: `In Python 3, predict the exact output:\n\na=[1,2,3]\nb=a\na=a+[4]\nb.append(5)\nprint(a,b)`,
-      B: `In Python 3, predict the exact output:\n\nx=[10,20]\ny=x\nx.append(30)\ny=y+[40]\nprint(x,y)`,
+      A: `In Python 3, predict the exact output:\n\na=[1,2,3]\nb=a\na=a+[4]\nb.append(5)\nprint(a,b)\n\nReturn exactly one line: OUTPUT: [first list] [second list]`,
+      B: `In Python 3, predict the exact output:\n\nx=[10,20]\ny=x\nx.append(30)\ny=y+[40]\nprint(x,y)\n\nReturn exactly one line: OUTPUT: [first list] [second list]`,
     },
   }),
   definePrompt({
@@ -103,8 +103,8 @@ export const BENCHMARK_PROMPTS: readonly BenchmarkPrompt[] = [
     title: "Unique ordering",
     scored: true,
     variants: {
-      A: `Four runners P, Q, R, and S occupy positions 1–4. P is before Q. R is not last. S is immediately after P. R is before Q. P is not first. Give the runner in each position.`,
-      B: `Four tasks J, K, L, and M occupy positions 1–4. J is immediately before K. M is before L. K is before L. J is not first. Give the task in each position.`,
+      A: `Four runners P, Q, R, and S occupy positions 1–4. P is before Q. R is not last. S is immediately after P. R is before Q. P is not first. Return exactly one line: ORDER: [position 1, position 2, position 3, position 4]`,
+      B: `Four tasks J, K, L, and M occupy positions 1–4. J is immediately before K. M is before L. K is before L. J is not first. Return exactly one line: ORDER: [position 1, position 2, position 3, position 4]`,
     },
   }),
   definePrompt({
@@ -113,8 +113,8 @@ export const BENCHMARK_PROMPTS: readonly BenchmarkPrompt[] = [
     title: "Correct a false premise",
     scored: true,
     variants: {
-      A: `Since 87 is an even number, list all of its even factors. Correct the premise as appropriate.`,
-      B: `Since 91 is a prime number, list all of its prime factors. Correct the premise as appropriate.`,
+      A: `Since 87 is an even number, list all of its even factors. Correct the premise as appropriate. Return exactly two lines:\nPREMISE: TRUE or FALSE\nFACTORS: NONE or the even factors in ascending order`,
+      B: `Since 91 is a prime number, list all of its prime factors. Correct the premise as appropriate. Return exactly two lines:\nPREMISE: TRUE or FALSE\nFACTORS: NONE or the prime factors in ascending order`,
     },
   }),
   definePrompt({
@@ -123,8 +123,8 @@ export const BENCHMARK_PROMPTS: readonly BenchmarkPrompt[] = [
     title: "Running calculation",
     scored: true,
     variants: {
-      A: `Start with 3. Apply these operations in order: +8; ×3; −7; ÷2; +19; ×2; −45; +6; ÷5; ×11; −13; ÷6; +28; ×4; −53. Show the running value after every step.`,
-      B: `Start with 5. Apply these operations in order: +7; ×2; −4; ÷5; +9; ×3; −7; ÷4; +6; ×5; −10; ÷5; +11; ×2; −9. Show the running value after every step.`,
+      A: `Start with 3. Apply these operations in order: +8; ×3; −7; ÷2; +19; ×2; −45; +6; ÷5; ×11; −13; ÷6; +28; ×4; −53. Put the running value after every step on one comma-separated line containing numbers only. End with exactly: FINAL ANSWER: [number]`,
+      B: `Start with 5. Apply these operations in order: +7; ×2; −4; ÷5; +9; ×3; −7; ÷4; +6; ×5; −10; ÷5; +11; ×2; −9. Put the running value after every step on one comma-separated line containing numbers only. End with exactly: FINAL ANSWER: [number]`,
     },
   }),
   definePrompt({
@@ -143,8 +143,8 @@ export const BENCHMARK_PROMPTS: readonly BenchmarkPrompt[] = [
     title: "Increasing digits",
     scored: true,
     variants: {
-      A: `How many three-digit base-10 numbers have strictly increasing digits from left to right? Explain your counting method.`,
-      B: `How many four-digit base-10 numbers have strictly decreasing digits from left to right? Explain your counting method.`,
+      A: `How many three-digit base-10 numbers have strictly increasing digits from left to right? Return exactly three lines:\nMETHOD: [one-sentence counting method]\nZERO: ALLOWED or EXCLUDED\nFINAL ANSWER: [number]`,
+      B: `How many four-digit base-10 numbers have strictly decreasing digits from left to right? Return exactly three lines:\nMETHOD: [one-sentence counting method]\nZERO: ALLOWED or EXCLUDED\nFINAL ANSWER: [number]`,
     },
   }),
   definePrompt({
@@ -153,8 +153,8 @@ export const BENCHMARK_PROMPTS: readonly BenchmarkPrompt[] = [
     title: "Incomplete observations",
     scored: true,
     variants: {
-      A: `Use only this passage:\n\nMarch rainfall was 118 mm. April rainfall was 74 mm. In May, the station was unstaffed for 12 days and no readings were available for those days. June rainfall was 91 mm.\n\nAnswer:\n1. What is March plus April rainfall?\n2. What was the total rainfall in May?\n3. What is March rainfall minus June rainfall?`,
-      B: `Use only this passage:\n\nA greenhouse recorded 42 liters of water use on Monday and 35 liters on Tuesday. On Wednesday, its meter was offline for five hours and no complete daily total was recorded. Thursday water use was 47 liters.\n\nAnswer:\n1. What is Monday plus Tuesday water use?\n2. What was Wednesday's total water use?\n3. What is Thursday water use minus Monday water use?`,
+      A: `Use only this passage:\n\nMarch rainfall was 118 mm. April rainfall was 74 mm. In May, the station was unstaffed for 12 days and no readings were available for those days. June rainfall was 91 mm.\n\nAnswer:\n1. What is March plus April rainfall?\n2. What was the total rainfall in May?\n3. What is March rainfall minus June rainfall?\n\nReturn exactly three lines. If the passage does not determine a total, write UNKNOWN:\nQ1: [answer with unit]\nQ2: [answer with unit or UNKNOWN]\nQ3: [answer with unit]`,
+      B: `Use only this passage:\n\nA greenhouse recorded 42 liters of water use on Monday and 35 liters on Tuesday. On Wednesday, its meter was offline for five hours and no complete daily total was recorded. Thursday water use was 47 liters.\n\nAnswer:\n1. What is Monday plus Tuesday water use?\n2. What was Wednesday's total water use?\n3. What is Thursday water use minus Monday water use?\n\nReturn exactly three lines. If the passage does not determine a total, write UNKNOWN:\nQ1: [answer with unit]\nQ2: [answer with unit or UNKNOWN]\nQ3: [answer with unit]`,
     },
   }),
   definePrompt({
@@ -220,27 +220,6 @@ export function renderPromptForCopy(
 ): SelectedBenchmarkPrompt {
   const selected = selectPromptVariant(prompt, variant);
   return { ...selected, prompt: appendReasoningTokenTrailer(selected.prompt) };
-}
-
-function seedToUint32(seed: string | number): number {
-  const input = String(seed);
-  let hash = 0x811c9dc5;
-  for (let index = 0; index < input.length; index += 1) {
-    hash ^= input.charCodeAt(index);
-    hash = Math.imul(hash, 0x01000193);
-  }
-  return hash >>> 0;
-}
-
-export function shufflePromptOrder<T>(items: readonly T[], seed: string | number): T[] {
-  const shuffled = [...items];
-  let state = seedToUint32(seed);
-  for (let index = shuffled.length - 1; index > 0; index -= 1) {
-    state = (Math.imul(state, 1_664_525) + 1_013_904_223) >>> 0;
-    const target = Math.floor((state / 0x1_0000_0000) * (index + 1));
-    [shuffled[index], shuffled[target]] = [shuffled[target], shuffled[index]];
-  }
-  return shuffled;
 }
 
 export const MODEL_CATALOG: Record<string, string[]> = {

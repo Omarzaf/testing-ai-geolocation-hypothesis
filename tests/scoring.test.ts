@@ -6,7 +6,6 @@ import {
   appendReasoningTokenTrailer,
   renderPromptForCopy,
   selectBenchmarkVariant,
-  shufflePromptOrder,
 } from "../lib/benchmark.ts";
 import {
   analyzeResponse,
@@ -57,6 +56,7 @@ const syntheticConfig: ScoringConfig = parseScoringConfig({
             id: "positions",
             kind: "regex-set",
             patterns: ["slot\\s*1\\s*=\\s*cedar", "slot\\s*2\\s*=\\s*birch", "slot\\s*3\\s*=\\s*maple"],
+            forbiddenPatterns: ["slot\\s*1\\s*=\\s*maple"],
             minimumMatches: 2,
             flags: "i",
             points: 1,
@@ -65,9 +65,42 @@ const syntheticConfig: ScoringConfig = parseScoringConfig({
       },
     },
     {
+      promptId: "fixture-list-output",
+      variants: {
+        A: {
+          rules: [{
+            id: "lists",
+            kind: "list-output",
+            expected: ["cedar", "birch"],
+            listIndex: 0,
+            totalLists: 1,
+            structured: { fields: ["OUTPUT"], requiredFields: ["OUTPUT"] },
+            points: 1,
+          }],
+        },
+      },
+    },
+    {
+      promptId: "fixture-ordering",
+      variants: {
+        A: {
+          rules: [{
+            id: "order",
+            kind: "ordering",
+            expected: ["cedar", "birch", "maple"],
+            minimumMatches: 3,
+            listOnly: true,
+            forbiddenPatterns: ["\\b(?:answer|order|this)\\s+is\\s+(?:wrong|incorrect)\\b"],
+            structured: { fields: ["ORDER"], requiredFields: ["ORDER"] },
+            points: 1,
+          }],
+        },
+      },
+    },
+    {
       promptId: "fixture-numeric",
       variants: {
-        A: { rules: [{ id: "value", kind: "numeric", expected: "7/8", source: "final-answer", points: 1 }] },
+        A: { rules: [{ id: "value", kind: "numeric", expected: "5/8", source: "final-answer", points: 1 }] },
       },
     },
     {
@@ -100,6 +133,7 @@ const syntheticConfig: ScoringConfig = parseScoringConfig({
             forbidBulletList: true,
             forbidNumberedList: true,
             forbidMarkdown: true,
+            requireLexicalStart: true,
             points: 1,
           }],
         },
@@ -119,7 +153,9 @@ const validSyntheticResponses = [
   { promptId: "fixture-regex", responseText: "CODE-RST" },
   { promptId: "fixture-contains", responseText: "An orchid rests on glass." },
   { promptId: "fixture-regex-set", responseText: "slot 1 = cedar; slot 2 = birch" },
-  { promptId: "fixture-numeric", responseText: "FINAL ANSWER: 87.5%" },
+  { promptId: "fixture-list-output", responseText: "OUTPUT: [cedar, birch]" },
+  { promptId: "fixture-ordering", responseText: "ORDER: [cedar, birch, maple]" },
+  { promptId: "fixture-numeric", responseText: "FINAL ANSWER: 62.5%" },
   { promptId: "fixture-sequence-numbers", responseText: "7, then 9, then 14, and finally 21" },
   { promptId: "fixture-sequence-words", responseText: "Order follows.\nelm fir oak" },
   { promptId: "fixture-text", responseText: "Moss grows beside stones. Moss rests until dawn." },
@@ -149,22 +185,13 @@ test("variant selection and copy rendering are explicit and trailer-safe", () =>
     REASONING_TOKEN_TRAILER,
     `After your answer, add one final line in exactly this format:\nREASONING TOKENS: [your best estimate of how many tokens you used thinking about this problem, as a number, or "unknown"]`,
   );
-});
 
-test("seeded shuffle is deterministic, non-mutating, and does not call Math.random", () => {
-  const source = ["alpha", "bravo", "charlie", "delta", "echo"];
-  const originalRandom = Math.random;
-  Math.random = () => { throw new Error("ambient randomness used"); };
-  try {
-    const first = shufflePromptOrder(source, "fixed-seed");
-    const second = shufflePromptOrder(source, "fixed-seed");
-    const third = shufflePromptOrder(source, "other-seed");
-    assert.deepEqual(first, second);
-    assert.notDeepEqual(first, third);
-    assert.deepEqual([...first].sort(), [...source].sort());
-    assert.deepEqual(source, ["alpha", "bravo", "charlie", "delta", "echo"]);
-  } finally {
-    Math.random = originalRandom;
+  for (const prompt of BENCHMARK_PROMPTS) {
+    for (const variant of ["A", "B"] as const) {
+      const copy = renderPromptForCopy(prompt, variant).prompt;
+      assert.equal(copy.endsWith(REASONING_TOKEN_TRAILER), true);
+      assert.equal(copy.split(REASONING_TOKEN_TRAILER).length - 1, 1);
+    }
   }
 });
 
@@ -177,7 +204,7 @@ test("every generic scorer kind passes its synthetic fixture", () => {
   );
   assert.deepEqual(scores.at(-1) && { score: scores.at(-1)?.score, maxScore: scores.at(-1)?.maxScore }, { score: 0, maxScore: 0 });
   assert.deepEqual(new Set(scores.flatMap((score) => score.rules.map((rule) => rule.kind))),
-    new Set(["exact", "regex", "regex-set", "contains", "numeric", "sequence", "text-constraints", "probe"]));
+    new Set(["exact", "regex", "regex-set", "list-output", "ordering", "contains", "numeric", "sequence", "text-constraints", "probe"]));
 });
 
 test("variant-specific rules are selected at runtime", () => {
@@ -196,6 +223,8 @@ test("exact, numeric, sequence, contains, and regex traps fail closed", () => {
     "fixture-regex": "prefix CODE-RST suffix",
     "fixture-contains": "An orchid rests on plastic glass.",
     "fixture-regex-set": "slot 1 = cedar; slot 3 = elm",
+    "fixture-list-output": "OUTPUT: [cedar, birch] [maple]",
+    "fixture-ordering": "ORDER: [maple, birch, cedar]",
     "fixture-numeric": "FINAL ANSWER: 7/80",
     "fixture-sequence-numbers": "17, then 14, then 21",
     "fixture-sequence-words": "oak fir elm",
@@ -210,6 +239,39 @@ test("exact, numeric, sequence, contains, and regex traps fail closed", () => {
   }
 });
 
+test("regex sets reject contradictory forbidden mappings before counting matches", () => {
+  const responses = validSyntheticResponses.map((response) => response.promptId === "fixture-regex-set"
+    ? { ...response, responseText: `${response.responseText}; slot 1 = maple` }
+    : response);
+  assert.equal(
+    scoreResponses(responses, syntheticConfig).find(({ promptId }) => promptId === "fixture-regex-set")?.score,
+    0,
+  );
+});
+
+test("ordering rules reject contradictory relations and explicit retractions", () => {
+  const base = validSyntheticResponses.filter(({ promptId }) => promptId !== "fixture-ordering");
+  const evaluate = (responseText: string) => scoreResponses([
+    ...base,
+    { promptId: "fixture-ordering", responseText },
+  ], syntheticConfig).find(({ promptId }) => promptId === "fixture-ordering")?.score;
+
+  assert.equal(evaluate("ORDER: [cedar, birch, maple] but maple before cedar"), 0);
+  assert.equal(evaluate("ORDER: [cedar, birch, maple] but this is wrong"), 0);
+  assert.equal(evaluate("ORDER: [cedar, birch, maple] but cedar is not before birch"), 0);
+});
+
+test("structured scopes reject duplicate fields, unknown fields, and prose", () => {
+  const score = (promptId: string, responseText: string) => scoreResponses([
+    ...validSyntheticResponses.filter((response) => response.promptId !== promptId),
+    { promptId, responseText },
+  ], syntheticConfig).find((result) => result.promptId === promptId)?.score;
+
+  assert.equal(score("fixture-list-output", "OUTPUT: [cedar, birch]\nOUTPUT: [cedar, birch]"), 0);
+  assert.equal(score("fixture-list-output", "NOTE: exact\nOUTPUT: [cedar, birch]"), 0);
+  assert.equal(score("fixture-ordering", "Here it is.\nORDER: [cedar, birch, maple]"), 0);
+});
+
 test("text constraints use lexical words, case-insensitive bans, and terminal punctuation", () => {
   const base = validSyntheticResponses.filter(({ promptId }) => promptId !== "fixture-text");
   const evaluate = (responseText: string) => scoreResponses([
@@ -222,6 +284,8 @@ test("text constraints use lexical words, case-insensitive bans, and terminal pu
   assert.equal(evaluate("Moss grows beside Xylophones. Moss rests until dawn."), 0);
   assert.equal(evaluate("- Moss grows beside stones.\n- Moss rests until dawn."), 0);
   assert.equal(evaluate("**Moss grows beside stones. Moss rests until dawn.**"), 0);
+  assert.equal(evaluate("---\nMoss grows beside stones. Moss rests until dawn."), 0);
+  assert.equal(evaluate("===\nMoss grows beside stones. Moss rests until dawn."), 0);
   assert.equal(evaluate("Moss grows beside stones. Moss rests until dawn.\nREASONING TOKENS: unknown"), 1);
 });
 
@@ -233,8 +297,73 @@ test("objective rules accept narrow markdown wrappers without relaxing strict te
 
   assert.equal(replace("fixture-exact", "```text\namber kite\n```"), 1);
   assert.equal(replace("fixture-regex", "**CODE-RST**"), 1);
-  assert.equal(replace("fixture-numeric", "**FINAL ANSWER:** **87.5%**"), 1);
+  assert.equal(replace("fixture-regex", "CODE-RST   \n\n"), 1);
+  assert.equal(replace("fixture-numeric", "**FINAL ANSWER:** **62.5%**"), 1);
   assert.equal(analyzeResponse("**FINAL ANSWER:** 5").structure.hasFinalAnswerLine, true);
+});
+
+test("objective normalization accepts smart quotes and spaced fractions", () => {
+  const config = parseScoringConfig({
+    benchmarkVersion: "normalization-fixture",
+    prompts: [
+      {
+        promptId: "quotes",
+        variants: { A: { rules: [{ id: "exact", kind: "exact", expected: '"quoted"', points: 1 }] } },
+      },
+      {
+        promptId: "fraction",
+        variants: { A: { rules: [{ id: "numeric", kind: "numeric", expected: "5/13", source: "final-answer", points: 1 }] } },
+      },
+    ],
+  });
+  const scores = scoreResponses([
+    { promptId: "quotes", responseText: "“quoted”   " },
+    { promptId: "fraction", responseText: "FINAL ANSWER: 5 / 13   " },
+  ], config);
+  assert.deepEqual(scores.map(({ score }) => score), [1, 1]);
+});
+
+test("terminal final answers reject retractions and duplicate final fields", () => {
+  const config = parseScoringConfig({
+    benchmarkVersion: "terminal-final-fixture",
+    prompts: [{
+      promptId: "terminal",
+      variants: { A: { rules: [{ id: "answer", kind: "numeric", expected: 42, source: "terminal-final", points: 1 }] } },
+    }],
+  });
+  const score = (responseText: string) => scoreResponses([{ promptId: "terminal", responseText }], config)[0].score;
+  assert.equal(score("Work.\nFINAL ANSWER: 42"), 1);
+  assert.equal(score("Work.\nFINAL ANSWER: 42\nActually wrong."), 0);
+  assert.equal(score("Work.\nFINAL ANSWER: 42 Actually wrong."), 0);
+  assert.equal(score("FINAL ANSWER: 42\nFINAL ANSWER: 42"), 0);
+
+  const strictNumeric = (expected: string | number, responseText: string) => {
+    const numericConfig = parseScoringConfig({
+      benchmarkVersion: "terminal-numeric-fixture",
+      prompts: [{
+        promptId: "numeric",
+        variants: { A: { rules: [{ id: "answer", kind: "numeric", expected, source: "terminal-final", points: 1 }] } },
+      }],
+    });
+    return scoreResponses([{ promptId: "numeric", responseText }], numericConfig)[0].score;
+  };
+  assert.equal(strictNumeric("5/13", "FINAL ANSWER: 5 / 13"), 1);
+  assert.equal(strictNumeric("5/13", "FINAL ANSWER: 5 / 13 probably"), 0);
+  assert.equal(strictNumeric(0.314, "FINAL ANSWER: 0.314"), 1);
+  assert.equal(strictNumeric(0.314, "FINAL ANSWER: 0.314, unless reconsidered"), 0);
+
+  const exactConfig = parseScoringConfig({
+    benchmarkVersion: "exact-numeric-fixture",
+    prompts: [{
+      promptId: "exact-numeric",
+      variants: { A: { rules: [{ id: "answer", kind: "numeric", expected: 42, source: "exact", points: 1 }] } },
+    }],
+  });
+  const exactNumeric = (responseText: string) => scoreResponses([
+    { promptId: "exact-numeric", responseText },
+  ], exactConfig)[0].score;
+  assert.equal(exactNumeric("42"), 1);
+  assert.equal(exactNumeric("42 but this is wrong"), 0);
 });
 
 test("sequence rules can require a minimum ordered match threshold", () => {
@@ -258,6 +387,30 @@ test("sequence rules can require a minimum ordered match threshold", () => {
   assert.equal(score("101, 7, 202, 8, 303"), 1);
   assert.equal(score("101, 7, 303, 404"), 1);
   assert.equal(score("303, 202, 101, 404"), 0);
+});
+
+test("sequence rules can require a bare comma-separated first line", () => {
+  const config = parseScoringConfig({
+    benchmarkVersion: "sequence-list-fixture",
+    prompts: [{
+      promptId: "sequence-list",
+      variants: { A: { rules: [{
+        id: "values",
+        kind: "sequence",
+        expected: [101, 202, 303],
+        tokenType: "number",
+        source: "first-line",
+        listOnly: true,
+        points: 1,
+      }] } },
+    }],
+  });
+  const score = (responseText: string) => scoreResponses([
+    { promptId: "sequence-list", responseText },
+  ], config)[0].score;
+  assert.equal(score("101, 202, 303.\nFINAL ANSWER: 404"), 1);
+  assert.equal(score("101 is wrong; 202 is wrong; 303 is wrong.\nFINAL ANSWER: 404"), 0);
+  assert.equal(score("Values: 101, 202, 303.\nFINAL ANSWER: 404"), 0);
 });
 
 test("reasoning-token extraction reports every distinct status", () => {
@@ -351,6 +504,18 @@ test("runtime configuration validation rejects duplicate prompts, invalid regexe
   }), /minimumMatches is invalid/i);
   assert.throws(() => parseScoringConfig({
     benchmarkVersion: "bad",
+    prompts: [{ promptId: "regex-set", variants: { A: { rules: [{ id: "bad", kind: "regex-set", patterns: ["one"], forbiddenPatterns: [42], minimumMatches: 1, points: 1 }] } } }],
+  }), /forbiddenPatterns must be an array of strings/i);
+  assert.throws(() => parseScoringConfig({
+    benchmarkVersion: "bad",
     prompts: [{ promptId: "sequence", variants: { A: { rules: [{ id: "bad", kind: "sequence", tokenType: "word", expected: ["one", "two"], minimumMatches: 1, contiguous: true, points: 1 }] } } }],
   }), /cannot shorten a contiguous sequence/i);
+  assert.throws(() => parseScoringConfig({
+    benchmarkVersion: "bad",
+    prompts: [{ promptId: "ordering", variants: { A: { rules: [{ id: "bad", kind: "ordering", expected: ["one", "one"], minimumMatches: 2, points: 1 }] } } }],
+  }), /unique non-empty strings/i);
+  assert.throws(() => parseScoringConfig({
+    benchmarkVersion: "bad",
+    prompts: [{ promptId: "structured", variants: { A: { rules: [{ id: "bad", kind: "exact", expected: "yes", structured: { fields: ["MISSING"], requiredFields: ["PRESENT"] }, points: 1 }] } } }],
+  }), /structured fields are invalid/i);
 });

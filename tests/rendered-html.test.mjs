@@ -2,11 +2,14 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
-async function render() {
+async function loadWorker() {
   const workerUrl = new URL("../dist/server/index.js", import.meta.url);
   workerUrl.searchParams.set("test", `${process.pid}-${Date.now()}`);
-  const { default: worker } = await import(workerUrl.href);
+  return (await import(workerUrl.href)).default;
+}
 
+async function render() {
+  const worker = await loadWorker();
   return worker.fetch(
     new Request("http://localhost/", {
       headers: { accept: "text/html" },
@@ -41,18 +44,23 @@ test("server-renders the core-2 public benchmark and sketch system", async () =>
   assert.doesNotMatch(html, /fonts\.googleapis\.com|fonts\.gstatic\.com/i);
 });
 
-test("uses one randomized core-2 session and submits the strict client contract", async () => {
-  const [app, benchmark, submission] = await Promise.all([
+test("uses one server-issued core-2 session and submits the strict client contract", async () => {
+  const [app, benchmark, submission, sessionRoute] = await Promise.all([
     readFile(new URL("../app/BenchmarkApp.tsx", import.meta.url), "utf8"),
     readFile(new URL("../lib/benchmark.ts", import.meta.url), "utf8"),
     readFile(new URL("../lib/submission.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/session/route.ts", import.meta.url), "utf8"),
   ]);
 
   assert.match(benchmark, /BENCHMARK_VERSION = "core-2\.0"/);
   assert.match(benchmark, /REASONING_TOKEN_TRAILER/);
   assert.match(benchmark, /REASONING TOKENS:/);
-  assert.match(app, /window\.crypto\.getRandomValues/);
-  assert.match(app, /shufflePromptOrder/);
+  assert.match(app, /fetch\("\/api\/session"/);
+  assert.match(app, /"X-Benchmark-Session": sessionToken/);
+  assert.match(app, /sessionRequestRef\.current !== requestId/);
+  assert.doesNotMatch(app, /window\.crypto\.getRandomValues|shufflePromptOrder/);
+  assert.match(sessionRoute, /issueBenchmarkSession/);
+  assert.match(sessionRoute, /"cache-control": "no-store"/i);
   assert.match(app, /renderPromptForCopy/);
   assert.match(app, /sessionVariant/);
   assert.match(app, /promptOrder\.map\(\(promptId\)/);
@@ -67,7 +75,9 @@ test("uses one randomized core-2 session and submits the strict client contract"
   assert.match(app, /completedInOneSitting: binaryFlag/);
   assert.match(app, /regenerated: draft\.regenerated \? 1 as const : 0 as const/);
   assert.match(app, /responseSecondsBucket: draft\.responseSecondsBucket/);
-  assert.match(app, /website: ""/);
+  assert.match(app, /name="website"/);
+  assert.match(app, /name="website"[\s\S]{0,240}tabIndex=\{-1\}/);
+  assert.match(app, /website,/);
   assert.match(submission, /EXPECTED_PROMPT_COUNT = 15/);
 });
 
@@ -83,10 +93,13 @@ test("keeps token claims and raw-IP handling scientifically honest", async () =>
 
   assert.match(copy, /Raw IP is never stored/);
   assert.match(copy, /processed only transiently into an unlinkable daily HMAC counter/i);
+  assert.match(copy, /do not include them in any field or pasted response/i);
   assert.match(copy, /self-reported by the model, not verified/i);
   assert.doesNotMatch(copy, /does not read (?:the )?IP|never reads (?:the )?IP/i);
   assert.match(route, /cf-connecting-ip/);
   assert.match(route, /reserveDailySubmission/);
+  assert.ok(route.indexOf("loadScoringConfig(database") < route.indexOf("reserveDailySubmission({"));
+  assert.ok(route.indexOf("SELECT 1 AS found") < route.indexOf("reserveDailySubmission({"));
   assert.match(antiAbuse, /HMAC/);
   assert.doesNotMatch(route, /INSERT INTO submissions[\s\S]*?ip_address/i);
   assert.doesNotMatch(app, /navigator\.geolocation|getCurrentPosition|document\.cookie|localStorage|gtag\(|mixpanel|posthog/i);

@@ -65,6 +65,8 @@ async function main() {
 
   const seenCaseIds = new Set();
   const cases = caseFile.cases.map((value) => validateCase(value, seenCaseIds));
+  const retractionCaseCount = cases.filter((testCase) =>
+    testCase.category === "positive" && (variantById.get(pairId(testCase.promptId, testCase.variant))?.maxScore ?? 0) > 0).length;
   const coverage = new Map(variants.map(({ id }) => [id, new Set()]));
   const failedCaseIds = [];
 
@@ -94,6 +96,16 @@ async function main() {
       if (!scored || scored.variant !== testCase.variant || scored.score !== testCase.expectedScore) {
         failedCaseIds.push(testCase.id);
       }
+      if (scored && testCase.category === "positive" && variant.maxScore > 0) {
+        const retracted = scoreResponses([{
+          promptId: testCase.promptId,
+          variant: testCase.variant,
+          responseText: `${testCase.responseText} Actually, this answer is wrong.`,
+        }], config).find((result) => result.promptId === testCase.promptId);
+        if (!retracted || retracted.score >= variant.maxScore) {
+          failedCaseIds.push(`${testCase.id}-retraction`);
+        }
+      }
     } catch {
       failedCaseIds.push(testCase.id);
     }
@@ -112,7 +124,7 @@ async function main() {
   }
 
   const promptIds = config.prompts.map((prompt) => prompt.promptId).join(",");
-  process.stdout.write(`PASS cases=${cases.length} variants=${variants.length} promptIds=${promptIds}\n`);
+  process.stdout.write(`PASS cases=${cases.length} retractions=${retractionCaseCount} variants=${variants.length} promptIds=${promptIds}\n`);
 }
 
 try {
