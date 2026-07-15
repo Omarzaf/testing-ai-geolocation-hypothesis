@@ -5,6 +5,9 @@ import handler from "vinext/server/app-router-entry";
 interface Env {
   ASSETS: Fetcher;
   DB: D1Database;
+  TURNSTILE_SITE_KEY: string;
+  TURNSTILE_SECRET_KEY: string;
+  RATE_LIMIT_HMAC_SECRET: string;
   IMAGES: {
     input(stream: ReadableStream): {
       transform(options: Record<string, unknown>): {
