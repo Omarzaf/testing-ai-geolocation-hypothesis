@@ -11,7 +11,7 @@ Verdict: **LOCAL PASS; RELEASE CHECK PENDING**
 - The answer-bearing implementation spec and the entire `private/` scorer directory are ignored.
 - Private scorer source, cases, and generated SQL are mode `0600`.
 - The local build deliberately contains an all-zero D1 placeholder. `pnpm release:verify-config` fails closed until an account-verified database ID is supplied at build time.
-- The durable leak gate derives 82 distinctive private answer signatures and numeric equivalents without printing them; none matched the final tracked tree, current build, or 131 blobs reachable from current Git history. It catches both fraction and decimal forms of the previously exposed B3 answer. The feature branch has not been pushed.
+- The durable leak gate derives 82 distinctive private answer signatures and numeric equivalents without printing them; none matched the final tracked tree, current build, or any blob reachable from current Git history. It catches both fraction and decimal forms of the previously exposed B3 answer. The feature branch has not been pushed.
 - The final release gate must repeat the tracked-tree and built-output answer scan after the account-specific build.
 
 ## Phase 1 — Schema and API extensions
