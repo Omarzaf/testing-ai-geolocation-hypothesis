@@ -10,11 +10,24 @@ system and does not ask participants for a name or email address. Participants
 are instructed not to include personal information in any field or pasted model
 response.
 
+`core-2.0` is a crowdsourced observatory, not a confirmatory experiment: see
+[docs/research-design.md](docs/research-design.md) for the preregistered,
+publication-grade research design (`parity-3.0`) this project is working
+toward — randomized network-location experiments, provider eligibility rules,
+statistical convergence criteria, and the evidence standard required before
+any public bias claim.
+
 ## Local development
 
 Prerequisites: Node.js 22.13 or newer and pnpm.
 
+This repository uses exactly one package manager: pnpm, pinned via the
+`packageManager` field in `package.json`. Do not commit an npm (`package-lock.json`)
+or Yarn (`yarn.lock`) lockfile; both are gitignored. Use Corepack to get the pinned
+version automatically:
+
 ```bash
+corepack enable
 pnpm install
 pnpm dev
 ```
@@ -62,6 +75,18 @@ pnpm scoring:seed
 This creates `private/core-2-scoring.sql` with permissions limited to the local
 user. Do not paste either private file into issues, logs, build output, or public
 documentation.
+
+CI cannot reconstruct this material on its own. The leak-scan step
+(`pnpm scoring:verify-no-leaks`) only runs when the `CORE2_SCORING_CONFIG_B64`
+and `CORE2_SCORING_CASES_B64` repository secrets are set (base64-encoded
+contents of `private/core-2-scoring.json` and `private/core-2-scoring-cases.json`
+respectively); otherwise that step is skipped rather than failing every run on
+absent local-only material. A maintainer with the private files can set them with:
+
+```bash
+gh secret set CORE2_SCORING_CONFIG_B64 --body "$(base64 < private/core-2-scoring.json)"
+gh secret set CORE2_SCORING_CASES_B64 --body "$(base64 < private/core-2-scoring-cases.json)"
+```
 
 ## Runtime configuration
 

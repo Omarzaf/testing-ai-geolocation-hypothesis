@@ -10,7 +10,6 @@ import {
   normalizeReasoningTokenReportStatus,
   readBoundedJson,
 } from "../app/api/submissions/route.ts";
-import type { PromptScore } from "../lib/scoring.ts";
 import type { ValidatedSubmission } from "../lib/submission.ts";
 
 const basePayload = {
@@ -27,12 +26,6 @@ const basePayload = {
     responseSecondsBucket: "5to15",
   })),
 } as unknown as ValidatedSubmission;
-
-const floorScores = ["A1", "A2", "A3"].map((promptId) => ({
-  promptId,
-  score: 2,
-  maxScore: 2,
-})) as PromptScore[];
 
 test("bounded JSON rejects invalid and oversized request bodies", async () => {
   await assert.rejects(
@@ -63,33 +56,20 @@ test("honeypot recognizes only non-empty website strings", () => {
   assert.equal(hasHoneypotValue(null), false);
 });
 
-test("quality assessment applies floor, protocol, repetition, and eligible states", () => {
-  assert.equal(assessQualityStatus(basePayload, floorScores), "eligible");
-  assert.equal(
-    assessQualityStatus(basePayload, [{ ...floorScores[0], score: 1 }, ...floorScores.slice(1)]),
-    "excluded_floor",
-  );
-  assert.equal(
-    assessQualityStatus({ ...basePayload, vpnUsed: "yes" }, floorScores),
-    "excluded_protocol",
-  );
-  assert.equal(
-    assessQualityStatus({ ...basePayload, vpnUsed: "unsure" }, floorScores),
-    "excluded_protocol",
-  );
-  assert.equal(
-    assessQualityStatus({ ...basePayload, uiLanguage: "ur" }, floorScores),
-    "excluded_protocol",
-  );
-  assert.equal(
-    assessQualityStatus({ ...basePayload, completedInOneSitting: 0 }, floorScores),
-    "excluded_protocol",
-  );
+test("quality assessment never depends on response scores", () => {
+  // assessQualityStatus takes only the submitted payload: there is no score
+  // input it could condition on, so a low-scoring or entirely wrong set of
+  // responses is exactly as eligible as a perfect one.
+  assert.equal(assessQualityStatus(basePayload), "eligible");
+  assert.equal(assessQualityStatus({ ...basePayload, vpnUsed: "yes" }), "excluded_protocol");
+  assert.equal(assessQualityStatus({ ...basePayload, vpnUsed: "unsure" }), "excluded_protocol");
+  assert.equal(assessQualityStatus({ ...basePayload, uiLanguage: "ur" }), "excluded_protocol");
+  assert.equal(assessQualityStatus({ ...basePayload, completedInOneSitting: 0 }), "excluded_protocol");
   const repeated = {
     ...basePayload,
     responses: basePayload.responses.map((response) => ({ ...response, responseText: "same" })),
   };
-  assert.equal(assessQualityStatus(repeated, floorScores), "flagged_repetition");
+  assert.equal(assessQualityStatus(repeated), "flagged_repetition");
 });
 
 test("results route rejects unknown benchmark versions before touching storage", async () => {

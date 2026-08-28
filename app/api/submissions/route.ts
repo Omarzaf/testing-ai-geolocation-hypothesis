@@ -7,6 +7,7 @@ import {
   verifyBenchmarkSession,
 } from "../../../lib/benchmarkSession.server.ts";
 import { loadScoringConfig } from "../../../lib/scoringConfig.server.ts";
+import { ELIGIBLE_FOR_PUBLIC_AGGREGATE_STATUSES } from "../../../lib/qualityStatus.ts";
 import { scoreResponses } from "../../../lib/scoring.ts";
 import { validateSubmissionPayload, type ValidatedSubmission } from "../../../lib/submission.ts";
 
@@ -16,6 +17,7 @@ const CROSS_REGION_THRESHOLD = 10;
 const RATE_LIMIT_PER_DAY = 5;
 const CURRENT_PROMPT_IDS = BENCHMARK_PROMPTS.map(({ id }) => id);
 const AVAILABLE_VERSIONS = [BENCHMARK_VERSION, "core-1.0"] as const;
+const ELIGIBLE_STATUS_PLACEHOLDERS = ELIGIBLE_FOR_PUBLIC_AGGREGATE_STATUSES.map(() => "?").join(", ");
 
 const REASONING_TOKEN_REPORT_STATUSES = [
   "reported",
@@ -189,13 +191,12 @@ async function hashSubmission(parts: readonly string[]): Promise<string> {
   return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
-export function assessQualityStatus(
-  payload: ValidatedSubmission,
-  scores: ReturnType<typeof scoreResponses>,
-): string {
-  const floorFailed = scores.some(({ promptId, score, maxScore }) =>
-    ["A1", "A2", "A3"].includes(promptId) && score < maxScore);
-  if (floorFailed) return "excluded_floor";
+/**
+ * Never accepts scores: whether a run counts toward analysis must not depend
+ * on how well the model answered, only on protocol conditions the
+ * participant controlled.
+ */
+export function assessQualityStatus(payload: ValidatedSubmission): string {
   if (
     payload.uiLanguage !== "en" ||
     payload.vpnUsed !== "no" ||
@@ -327,7 +328,7 @@ export async function POST(request: Request) {
     const overallScore = scores.reduce((sum, item) => sum + item.score, 0);
     const maxScore = scores.reduce((sum, item) => sum + item.maxScore, 0);
     const submissionId = crypto.randomUUID();
-    const status = assessQualityStatus(payload, scores);
+    const status = assessQualityStatus(payload);
     const clientIp = request.headers.get("cf-connecting-ip")?.trim() || localFallbackIp(request);
     if (!clientIp) {
       return Response.json({ error: "Abuse protection could not verify this connection." }, { status: 503 });
@@ -491,9 +492,9 @@ export async function GET(request: Request) {
              COUNT(DISTINCT UPPER(COALESCE(country, '')) || '|' || LOWER(TRIM(city))) AS cities,
              COUNT(DISTINCT provider || '|' || model) AS models
            FROM submissions
-           WHERE benchmark_version = ? AND quality_status = 'eligible'`,
+           WHERE benchmark_version = ? AND quality_status IN (${ELIGIBLE_STATUS_PLACEHOLDERS})`,
         )
-        .bind(selectedVersion)
+        .bind(selectedVersion, ...ELIGIBLE_FOR_PUBLIC_AGGREGATE_STATUSES)
         .first(),
       database
         .prepare(
@@ -507,13 +508,13 @@ export async function GET(request: Request) {
              COUNT(*) AS sampleSize,
              ROUND(AVG(CAST(overall_score AS REAL) / NULLIF(max_score, 0)) * 100, 1) AS averageScore
            FROM submissions
-           WHERE benchmark_version = ? AND quality_status = 'eligible'
+           WHERE benchmark_version = ? AND quality_status IN (${ELIGIBLE_STATUS_PLACEHOLDERS})
            GROUP BY LOWER(city), COALESCE(country, ''), provider, model, access_type, LOWER(plan_label)
            HAVING COUNT(*) >= ${PRIVACY_THRESHOLD}
            ORDER BY sampleSize DESC, averageScore DESC
            LIMIT 100`,
         )
-        .bind(selectedVersion)
+        .bind(selectedVersion, ...ELIGIBLE_FOR_PUBLIC_AGGREGATE_STATUSES)
         .all<ResultGroupRow>(),
     ]);
 
@@ -526,14 +527,14 @@ export async function GET(request: Request) {
              SELECT LOWER(TRIM(COALESCE(r.reasoning_token_status, ''))) AS status
              FROM responses AS r
              INNER JOIN submissions AS s ON s.id = r.submission_id
-             WHERE s.benchmark_version = ? AND s.quality_status = 'eligible'
+             WHERE s.benchmark_version = ? AND s.quality_status IN (${ELIGIBLE_STATUS_PLACEHOLDERS})
            )
            SELECT status, COUNT(*) AS count
            FROM stored_statuses
            GROUP BY status
            ORDER BY status`,
         )
-        .bind(BENCHMARK_VERSION)
+        .bind(BENCHMARK_VERSION, ...ELIGIBLE_FOR_PUBLIC_AGGREGATE_STATUSES)
         .all<ReasoningTokenStatusCountRow>();
       tokenStatusRows = tokenStatuses.results;
     }
