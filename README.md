@@ -10,6 +10,13 @@ system and does not ask participants for a name or email address. Participants
 are instructed not to include personal information in any field or pasted model
 response.
 
+`core-2.0` is a crowdsourced observatory, not a confirmatory experiment: see
+[docs/research-design.md](docs/research-design.md) for the preregistered,
+publication-grade research design (`parity-3.0`) this project is working
+toward — randomized network-location experiments, provider eligibility rules,
+statistical convergence criteria, and the evidence standard required before
+any public bias claim.
+
 ## Local development
 
 Prerequisites: Node.js 22.13 or newer and pnpm.
