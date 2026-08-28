@@ -1,0 +1,61 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22.13.0"
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # `pnpm test` reads from `dist/`, so the build must run first.
+      - name: Build
+        run: pnpm build
+
+      - name: Test
+        run: pnpm test
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Typecheck
+        run: pnpm exec tsc --noEmit
+
+      # The private answer key (`private/core-2-scoring.json` and
+      # `private/core-2-scoring-cases.json`) is never committed — see
+      # README.md#private-scoring-material. Populate the
+      # CORE2_SCORING_CONFIG_B64 / CORE2_SCORING_CASES_B64 repository secrets
+      # (base64-encoded file contents) to enable this gate; until then it is
+      # skipped rather than failing every run on missing local-only material.
+      - name: Restore private scoring material
+        if: ${{ secrets.CORE2_SCORING_CONFIG_B64 != '' && secrets.CORE2_SCORING_CASES_B64 != '' }}
+        run: |
+          mkdir -p private
+          echo "$CORE2_SCORING_CONFIG_B64" | base64 --decode > private/core-2-scoring.json
+          echo "$CORE2_SCORING_CASES_B64" | base64 --decode > private/core-2-scoring-cases.json
+        env:
+          CORE2_SCORING_CONFIG_B64: ${{ secrets.CORE2_SCORING_CONFIG_B64 }}
+          CORE2_SCORING_CASES_B64: ${{ secrets.CORE2_SCORING_CASES_B64 }}
+
+      - name: Verify no answer-key leaks
+        if: ${{ secrets.CORE2_SCORING_CONFIG_B64 != '' && secrets.CORE2_SCORING_CASES_B64 != '' }}
+        run: pnpm scoring:verify-no-leaks
