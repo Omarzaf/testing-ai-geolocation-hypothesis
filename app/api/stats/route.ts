@@ -1,4 +1,7 @@
 import { BENCHMARK_VERSION } from "../../../lib/benchmark";
+import { ELIGIBLE_FOR_PUBLIC_AGGREGATE_STATUSES } from "../../../lib/qualityStatus";
+
+const ELIGIBLE_STATUS_PLACEHOLDERS = ELIGIBLE_FOR_PUBLIC_AGGREGATE_STATUSES.map(() => "?").join(", ");
 
 const CORS_HEADERS = {
   "access-control-allow-origin": "*",
@@ -18,9 +21,9 @@ export async function GET() {
          COUNT(DISTINCT UPPER(COALESCE(country, '')) || '|' || LOWER(TRIM(city))) AS cities,
          COUNT(DISTINCT provider || '|' || model) AS models
        FROM submissions
-       WHERE benchmark_version = ? AND quality_status = 'eligible'`,
+       WHERE benchmark_version = ? AND quality_status IN (${ELIGIBLE_STATUS_PLACEHOLDERS})`,
     )
-      .bind(BENCHMARK_VERSION)
+      .bind(BENCHMARK_VERSION, ...ELIGIBLE_FOR_PUBLIC_AGGREGATE_STATUSES)
       .first<{ submissions: number; cities: number; models: number }>();
 
     return Response.json(
