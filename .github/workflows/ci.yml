@@ -12,6 +12,9 @@ concurrency:
 jobs:
   gate:
     runs-on: ubuntu-latest
+    env:
+      CORE2_SCORING_CONFIG_B64: ${{ secrets.CORE2_SCORING_CONFIG_B64 }}
+      CORE2_SCORING_CASES_B64: ${{ secrets.CORE2_SCORING_CASES_B64 }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -47,15 +50,12 @@ jobs:
       # (base64-encoded file contents) to enable this gate; until then it is
       # skipped rather than failing every run on missing local-only material.
       - name: Restore private scoring material
-        if: ${{ secrets.CORE2_SCORING_CONFIG_B64 != '' && secrets.CORE2_SCORING_CASES_B64 != '' }}
+        if: ${{ env.CORE2_SCORING_CONFIG_B64 != '' && env.CORE2_SCORING_CASES_B64 != '' }}
         run: |
           mkdir -p private
-          echo "$CORE2_SCORING_CONFIG_B64" | base64 --decode > private/core-2-scoring.json
-          echo "$CORE2_SCORING_CASES_B64" | base64 --decode > private/core-2-scoring-cases.json
-        env:
-          CORE2_SCORING_CONFIG_B64: ${{ secrets.CORE2_SCORING_CONFIG_B64 }}
-          CORE2_SCORING_CASES_B64: ${{ secrets.CORE2_SCORING_CASES_B64 }}
+          printf '%s' "$CORE2_SCORING_CONFIG_B64" | base64 --decode > private/core-2-scoring.json
+          printf '%s' "$CORE2_SCORING_CASES_B64" | base64 --decode > private/core-2-scoring-cases.json
 
       - name: Verify no answer-key leaks
-        if: ${{ secrets.CORE2_SCORING_CONFIG_B64 != '' && secrets.CORE2_SCORING_CASES_B64 != '' }}
+        if: ${{ env.CORE2_SCORING_CONFIG_B64 != '' && env.CORE2_SCORING_CASES_B64 != '' }}
         run: pnpm scoring:verify-no-leaks
