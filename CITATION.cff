@@ -1,0 +1,21 @@
+cff-version: 1.2.0
+message: "If you use this benchmark software, please cite it and identify the benchmark version and repository revision."
+title: "Reasoning Across Borders"
+type: software
+authors:
+  - family-names: Zafar
+    given-names: Muhammad Umar
+repository-code: "https://github.com/Omarzaf/testing-ai-geolocation-hypothesis"
+url: "https://reasoning-across-borders.mumerzafer.workers.dev/"
+license: MIT
+version: 0.1.0
+abstract: >-
+  Public benchmark software and a preregistered research design for examining
+  whether the same declared consumer AI product behaves differently across
+  geographic regions.
+keywords:
+  - AI governance
+  - AI evaluation
+  - algorithmic accountability
+  - geolocation
+  - benchmark

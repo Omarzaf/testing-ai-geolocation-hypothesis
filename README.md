@@ -17,6 +17,16 @@ toward — randomized network-location experiments, provider eligibility rules,
 statistical convergence criteria, and the evidence standard required before
 any public bias claim.
 
+## Project status and demo
+
+**Active research prototype.** The public `core-2.0` crowdsourced benchmark is
+available at [reasoning-across-borders.mumerzafer.workers.dev](https://reasoning-across-borders.mumerzafer.workers.dev/).
+The stricter `parity-3.0` confirmatory design is documented research work, not a
+deployed experiment or completed finding.
+
+Public output is limited to aggregate results that meet the privacy thresholds
+described below. The project does not publish participant-level responses.
+
 ## Local development
 
 Prerequisites: Node.js 22.13 or newer and pnpm.
@@ -184,3 +194,35 @@ never use that placeholder for a remote migration or deployment.
   reported, unknown, refused, absent, and malformed statuses distinct and remain
   hidden until the five-submission privacy threshold is met.
 - Raw responses are never returned by the public results or stats endpoints.
+
+## Limitations
+
+- `core-2.0` depends on participants accurately reporting their location,
+  product, model label, plan, and test conditions.
+- Observed regional differences cannot by themselves establish model
+  substitution, provider intent, discrimination, or a causal mechanism.
+- Small or incomplete groups are suppressed or marked below the threshold for
+  cross-region claims rather than treated as conclusive evidence.
+- The confirmatory claims and convergence criteria belong to the separate
+  `parity-3.0` design in [docs/research-design.md](docs/research-design.md).
+
+## Support and maintenance
+
+Muhammad Umar Zafar maintains this repository. Use GitHub issues for
+reproducible software defects, documentation problems, or source-backed research
+corrections. Account-wide contribution and issue guidance applies unless this
+repository adds more specific instructions.
+
+Report vulnerabilities through GitHub private vulnerability reporting. Do not
+place expected answers, credentials, participant data, raw responses, or exploit
+details in a public issue.
+
+## License and citation
+
+The repository's original software is available under the [MIT License](LICENSE).
+That license does not grant rights in third-party AI outputs, participant
+submissions, provider names or marks, or private scoring fixtures that are not
+part of the public repository.
+
+Use [CITATION.cff](CITATION.cff) when citing the benchmark software and name the
+benchmark version and repository revision used.
